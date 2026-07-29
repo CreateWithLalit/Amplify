@@ -90,13 +90,23 @@ fun SearchScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // Header
-            Text(
-                text = "Search",
-                color = Color.White,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.ExtraBold,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 20.dp, top = 28.dp, bottom = 16.dp)
-            )
+            ) {
+                Text(
+                    text = "Search",
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = {
+                    context.startActivity(Intent(context, DownloaderActivity::class.java))
+                }) {
+                    Icon(Icons.Default.Download, contentDescription = "Downloader", tint = Color.White)
+                }
+            }
 
             // Search Bar
             OutlinedTextField(

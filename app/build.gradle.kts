@@ -94,9 +94,6 @@ dependencies {
     // Gson for JSON parsing
     implementation("com.google.code.gson:gson:2.11.0")
 
-    // Parcelize runtime for @Parcelize models
-    implementation("org.jetbrains.kotlin:kotlin-parcelize-runtime:2.2.10")
-
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -213,7 +213,6 @@ class DownloadedSongRepository private constructor(private val context: Context)
 
                 while (cursor.moveToNext()) {
                     val data = cursor.getString(dataCol) ?: continue
-                    if (!data.contains("Amplify") && !data.contains("amplify")) continue
 
                     val mediaStoreId = cursor.getLong(idCol)
                     val title = cursor.getString(titleCol) ?: "Unknown"

@@ -162,7 +162,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
             val fileName = if (currentTrack != null) {
                 generateFileName(currentTrack)
             } else {
-                "manual_download_${System.currentTimeMillis()}.mp3" // Just a placeholder, manual doesn't really check duplicates well without a fixed name
+                "manual_download_${System.currentTimeMillis()}.m4a" // Just a placeholder (m4a) for manual downloads
             }
 
             val exists = if (destUri != null) {
@@ -211,7 +211,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
             )
         } else {
             // Manual URL flow
-            val fileName = "manual_download_${System.currentTimeMillis()}.mp3"
+            val fileName = "manual_download_${System.currentTimeMillis()}.m4a"
             DownloadTask(
                 id = System.currentTimeMillis().toString(),
                 trackTitle = "Manual Download",
@@ -219,8 +219,8 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
                 streamUrl = manual,
                 thumbnailUrl = null,
                 fileName = fileName,
-                fileExtension = "mp3",
-                contentType = "audio/mpeg",
+                fileExtension = "m4a",
+                contentType = "audio/mp4",
                 destinationUri = destUri,
                 audioQuality = "Unknown"
             )
@@ -268,7 +268,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
 
             // Fallback: MediaStore public Music folder (no permission needed on Android 10+)
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
-                val fileName = track?.let { generateFileName(it) } ?: "download.mp3"
+                val fileName = track?.let { generateFileName(it) } ?: "download.m4a"
                 AmplifyDownloadManager.createMediaStoreEntry(
                     context,
                     fileName,
@@ -319,7 +319,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
             android.media.MediaScannerConnection.scanFile(
                 context,
                 arrayOf(it),
-                arrayOf("audio/mpeg"),
+                arrayOf("audio/mp4"),
                 null
             )
         }

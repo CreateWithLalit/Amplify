@@ -16,7 +16,7 @@ class YouTubeResolverRepository @Inject constructor() {
     private val client = OkHttpClient()
     
     // This should be configurable, for now using a placeholder
-    private var backendBaseUrl = "https://amplify-backend-resolver.railway.app"
+    private var backendBaseUrl = "https://amplify-production-0b58.up.railway.app"
 
     fun setBackendUrl(url: String) {
         backendBaseUrl = url.removeSuffix("/")
