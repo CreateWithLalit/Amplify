@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["nodejs", "python3", "ffmpeg"]
+nixPkgs = ["nodejs", "python3", "ffmpeg", "yt-dlp"]
 
 [phases.build]
-cmds = ["npm install", "curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp", "chmod a+rx yt-dlp"]
+cmds = ["npm install"]
 
 [start]
 cmd = "node index.js"
