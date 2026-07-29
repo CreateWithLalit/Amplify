@@ -126,6 +126,6 @@ app.get('/stream', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
-    console.log(`Amplify Resolver Backend listening at http://localhost:${port}`);
+app.listen(port, '0.0.0.0', () => {
+    console.log(`Amplify Resolver Backend listening at http://0.0.0.0:${port}`);
 });
