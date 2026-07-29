@@ -4,7 +4,7 @@ const axios = require('axios');
 const NodeCache = require('node-cache');
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 const cache = new NodeCache({ stdTTL: 21600 }); // 6 hours cache
 
 // Middleware to log requests
