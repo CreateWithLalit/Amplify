@@ -16,9 +16,10 @@ app.use((req, res, next) => {
 // Helper to run yt-dlp
 function getYtDlpMetadata(url) {
     return new Promise((resolve, reject) => {
-        // Use 'python3 -m yt_dlp' or just 'yt-dlp'
-        // Railway with nixpacks should have yt-dlp in the path
-        const ytDlp = spawn('yt-dlp', [
+        // Use local ./yt-dlp if it exists, otherwise fallback to global
+        const command = require('fs').existsSync('./yt-dlp') ? './yt-dlp' : 'yt-dlp';
+
+        const ytDlp = spawn(command, [
             '--dump-json',
             '--no-playlist',
             '--no-warnings',
