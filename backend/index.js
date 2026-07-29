@@ -69,7 +69,9 @@ app.all('/resolve', async (req, res) => {
     }
     res.json({
       title: info.title || 'Unknown title',
-      artist: info.uploader || info.channel || 'Unknown artist',
+      // Music uploads often expose the singer in `artist` or `creators`; fall
+      // back to the channel/uploader only when YouTube supplies no artist data.
+      artist: info.artist || info.creators?.join(', ') || info.uploader || info.channel || 'Unknown artist',
       duration: info.duration || 0,
       thumbnail: info.thumbnail || null,
       formats: ['low', 'medium', 'high']

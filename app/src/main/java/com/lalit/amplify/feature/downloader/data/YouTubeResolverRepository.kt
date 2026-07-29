@@ -3,7 +3,6 @@ package com.lalit.amplify.feature.downloader.data
 import com.lalit.amplify.feature.search.DownloadableTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType

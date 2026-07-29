@@ -47,7 +47,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _localSongs,
         downloadedSongRepo.downloadedSongs
     ) { local, downloaded ->
-        (local + downloaded).sortedBy { it.title.lowercase() }
+        val downloadedUris = downloaded.mapTo(mutableSetOf()) { it.uri.toString() }
+        // Prefer the downloaded-song record, which carries its source and album art,
+        // while preventing MediaStore from showing the same file twice.
+        (downloaded + local.filterNot { it.uri.toString() in downloadedUris })
+            .sortedBy { it.title.lowercase() }
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -353,6 +357,24 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleFavorite(song: Song) {
         viewModelScope.launch {
             dataStore.toggleFavorite(song.id)
+        }
+    }
+
+    fun deleteDownloadedSong(song: Song) {
+        if (song.source != com.lalit.amplify.core.model.SongSource.DOWNLOADED) return
+
+        viewModelScope.launch {
+            if (_playerState.value.currentSong?.uri == song.uri) {
+                controller?.stop()
+                _playerState.value = _playerState.value.copy(
+                    currentSong = null,
+                    isPlaying = false,
+                    currentPosition = 0L,
+                    duration = 0L
+                )
+            }
+            downloadedSongRepo.deleteSong(song)
+            _localSongs.value = fetchSongsFromMediaStore()
         }
     }
 

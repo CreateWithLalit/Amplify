@@ -10,6 +10,7 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lalit.amplify.feature.downloader.data.DownloadPreferences
+import com.lalit.amplify.feature.downloader.data.DownloadedSongRepository
 import com.lalit.amplify.feature.downloader.engine.AmplifyDownloadManager
 import com.lalit.amplify.feature.downloader.model.DownloadQuality
 import com.lalit.amplify.feature.downloader.model.DownloadState
@@ -28,6 +29,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
     private val downloadManager = AmplifyDownloadManager(context)
     private val preferences = DownloadPreferences(context)
     private val ytResolver = com.lalit.amplify.feature.downloader.data.YouTubeResolverRepository()
+    private val downloadedSongRepository = DownloadedSongRepository.getInstance(context)
 
     val downloadState: StateFlow<DownloadState> = downloadManager.downloadState
 
@@ -255,6 +257,9 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
                         if (currentTrack != null) {
                             importToLibrary(fileUri, currentTrack)
                         }
+                        // The shared repository backs the Library tab, so refresh it
+                        // immediately instead of waiting for the next app launch.
+                        downloadedSongRepository.scanDownloadedSongs(_destinationUri.value)
                     }
                 },
                 onFailure = { /* Error state handled by downloadManager */ }

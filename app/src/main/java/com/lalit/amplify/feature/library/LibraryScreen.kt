@@ -19,7 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,10 +33,12 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -75,6 +79,7 @@ fun LibraryScreen(
     val downloadedSongs by downloadedSongRepository.downloadedSongs.collectAsState(initial = emptyList())
 
     var selectedTab by remember { mutableIntStateOf(0) }
+    var songPendingDelete by remember { mutableStateOf<Song?>(null) }
     val tabs = listOf("All Music", "Local", "Downloaded")
 
     Box(
@@ -179,8 +184,8 @@ fun LibraryScreen(
 
             // Display list
             val displaySongs: List<Song> = when (selectedTab) {
-                        0 -> songs + downloadedSongs
-                1 -> songs
+                0 -> songs
+                1 -> songs.filter { it.source == com.lalit.amplify.core.model.SongSource.LOCAL }
                 2 -> downloadedSongs
                 else -> songs
             }
@@ -199,7 +204,7 @@ fun LibraryScreen(
                         if (selectedTab == 2) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Use Search to find and download music",
+                            text = "Use the Download tab to add music",
                                 color = Color(0xFF333333),
                                 fontSize = 12.sp
                             )
@@ -221,13 +226,18 @@ fun LibraryScreen(
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                         )
                     }
-                    itemsIndexed(displaySongs) { _, song ->
+                    itemsIndexed(displaySongs, key = { _, song -> song.uri.toString() }) { _, song ->
                         LibrarySongRow(
                             song = song,
                             isPlaying = playerState.currentSong?.id == song.id,
                             isFavorite = favoriteIds.contains(song.id),
                             onClick = { viewModel.playSong(song, displaySongs) },
-                            onToggleFavorite = { viewModel.toggleFavorite(song) }
+                            onToggleFavorite = { viewModel.toggleFavorite(song) },
+                            onDelete = if (song.source == com.lalit.amplify.core.model.SongSource.DOWNLOADED) {
+                                { songPendingDelete = song }
+                            } else {
+                                null
+                            }
                         )
                         HorizontalDivider(
                             modifier = Modifier.padding(start = 82.dp, end = 20.dp),
@@ -237,6 +247,33 @@ fun LibraryScreen(
                     }
                 }
             }
+        }
+
+        songPendingDelete?.let { song ->
+            AlertDialog(
+                onDismissRequest = { songPendingDelete = null },
+                containerColor = Color(0xFF181818),
+                title = { Text("Delete download?", color = Color.White) },
+                text = {
+                    Text(
+                        "Delete ${song.title} from this phone?",
+                        color = Color(0xFFAAAAAA)
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.deleteDownloadedSong(song)
+                        songPendingDelete = null
+                    }) {
+                        Text("Delete", color = Color(0xFFFF5252))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { songPendingDelete = null }) {
+                        Text("Cancel", color = Color.White)
+                    }
+                }
+            )
         }
 
         // MiniPlayer
@@ -261,7 +298,8 @@ private fun LibrarySongRow(
     isPlaying: Boolean,
     isFavorite: Boolean,
     onClick: () -> Unit,
-    onToggleFavorite: () -> Unit
+    onToggleFavorite: () -> Unit,
+    onDelete: (() -> Unit)?
 ) {
     Row(
         modifier = Modifier
@@ -318,6 +356,20 @@ private fun LibrarySongRow(
                 tint = if (isFavorite) Color(0xFF1DB954) else Color(0xFF3A3A3A),
                 modifier = Modifier.size(18.dp)
             )
+        }
+
+        if (onDelete != null) {
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete downloaded song",
+                    tint = Color(0xFFB85A5A),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }

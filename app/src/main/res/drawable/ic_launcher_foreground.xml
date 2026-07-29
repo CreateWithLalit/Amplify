@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:drawable="@drawable/amplify_logo"
-        android:gravity="center"
-        android:width="72dp"
-        android:height="72dp" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- A simple double music-note kept inside Android's adaptive-icon safe zone. -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.78"
+        android:scaleY="0.78">
+        <path
+            android:fillColor="#1DB954"
+            android:pathData="M63,22L71,22L71,64.5C71,74.2 63.2,82 53.5,82C43.8,82 36,74.2 36,64.5C36,54.8 43.8,47 53.5,47C56.8,47 60,47.9 63,49.7L63,31.2L45,35.7L45,69.5C45,79.2 37.2,87 27.5,87C17.8,87 10,79.2 10,69.5C10,59.8 17.8,52 27.5,52C30.8,52 34,52.9 37,54.7L37,29.4Z" />
+    </group>
+</vector>

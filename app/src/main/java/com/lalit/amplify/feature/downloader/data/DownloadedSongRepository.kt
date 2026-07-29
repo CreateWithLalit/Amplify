@@ -85,6 +85,22 @@ class DownloadedSongRepository private constructor(private val context: Context)
         _downloadedSongs.value = current
     }
 
+    /** Deletes an Amplify download from the actual storage location and refreshes the list. */
+    suspend fun deleteSong(song: Song): Boolean = withContext(Dispatchers.IO) {
+        val deleted = try {
+            when (song.uri.scheme) {
+                "content" -> context.contentResolver.delete(song.uri, null, null) > 0
+                "file" -> song.uri.path?.let(::File)?.delete() == true
+                else -> DocumentFile.fromSingleUri(context, song.uri)?.delete() == true
+            }
+        } catch (_: Exception) {
+            false
+        }
+
+        if (deleted) scanDownloadedSongs()
+        deleted
+    }
+
     private fun isAudioFile(name: String?): Boolean {
         if (name == null) return false
         return name.endsWith(".mp3", ignoreCase = true) ||
@@ -200,8 +216,19 @@ class DownloadedSongRepository private constructor(private val context: Context)
             MediaStore.Audio.Media.DATA
         )
 
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-        context.contentResolver.query(collection, projection, selection, null, null)
+        val selection: String
+        val selectionArgs: Array<String>
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND " +
+                "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+            selectionArgs = arrayOf("Music/Amplify/%")
+        } else {
+            selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND " +
+                "${MediaStore.MediaColumns.DATA} LIKE ?"
+            selectionArgs = arrayOf("%/Music/Amplify/%")
+        }
+
+        context.contentResolver.query(collection, projection, selection, selectionArgs, null)
             ?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -225,6 +252,7 @@ class DownloadedSongRepository private constructor(private val context: Context)
                         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaStoreId
                     )
                     val albumArtUri = "content://media/external/audio/albumart/$albumId".toUri()
+                    val embeddedMetadata = readMetadata(uri)
 
                     // Offset MediaStore IDs from Amplify downloads
                     val safeId = DOWNLOAD_ID_OFFSET + mediaStoreId
@@ -232,10 +260,10 @@ class DownloadedSongRepository private constructor(private val context: Context)
                     songs.add(
                         Song(
                             id = safeId,
-                            title = title,
-                            artist = artist,
-                            album = album,
-                            duration = duration,
+                            title = embeddedMetadata.title ?: title,
+                            artist = embeddedMetadata.artist ?: artist,
+                            album = embeddedMetadata.album ?: album,
+                            duration = embeddedMetadata.duration.takeIf { it > 0L } ?: duration,
                             uri = uri,
                             albumArtUri = albumArtUri,
                             source = SongSource.DOWNLOADED
@@ -245,6 +273,33 @@ class DownloadedSongRepository private constructor(private val context: Context)
             }
         return songs
     }
+
+    private data class AudioMetadata(
+        val title: String? = null,
+        val artist: String? = null,
+        val album: String? = null,
+        val duration: Long = 0L
+    )
+
+    private fun readMetadata(uri: Uri): AudioMetadata {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            AudioMetadata(
+                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE).usableMetadata(),
+                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST).usableMetadata(),
+                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM).usableMetadata(),
+                duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            )
+        } catch (_: Exception) {
+            AudioMetadata()
+        } finally {
+            retriever.release()
+        }
+    }
+
+    private fun String?.usableMetadata(): String? =
+        this?.takeIf { it.isNotBlank() && !it.equals("<unknown>", ignoreCase = true) }
 
 
     companion object {

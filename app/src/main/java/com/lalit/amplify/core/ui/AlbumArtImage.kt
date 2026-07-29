@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,17 +31,21 @@ fun AlbumArtImage(
     val context = LocalContext.current
 
     if (uri != null) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(uri)
-                .crossfade(true)
-                .build(),
-            contentDescription = "Album Art",
-            contentScale = ContentScale.Crop,
-            modifier = modifier
-                .size(size)
-                .clip(RoundedCornerShape(cornerRadius))
-        )
+        // Recreate the image request when the playing/list item changes, rather
+        // than reusing the previous track's composable image state.
+        key(uri) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(uri)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = "Album Art",
+                contentScale = ContentScale.Crop,
+                modifier = modifier
+                    .size(size)
+                    .clip(RoundedCornerShape(cornerRadius))
+            )
+        }
     } else {
         Box(
             modifier = modifier

@@ -345,6 +345,10 @@ class AmplifyDownloadManager(private val context: Context) {
                 put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
                 put(MediaStore.Audio.Media.TITLE, title)
                 put(MediaStore.Audio.Media.ARTIST, artist)
+                // A unique album keeps each downloaded track's embedded cover art
+                // from being replaced by the artwork of an earlier download.
+                put(MediaStore.Audio.Media.ALBUM, title)
+                put(MediaStore.Audio.Media.IS_MUSIC, 1)
                 put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.MediaColumns.RELATIVE_PATH, "Music/Amplify/")
