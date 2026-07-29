@@ -13,6 +13,18 @@ app.use((req, res, next) => {
     next();
 });
 
+// Root route for status check
+app.get('/', (req, res) => {
+    res.json({
+        status: "online",
+        message: "Amplify YouTube Resolver is running",
+        endpoints: {
+            resolve: "/resolve?url=<youtube_url>",
+            stream: "/stream?url=<youtube_url>"
+        }
+    });
+});
+
 // Helper to run yt-dlp
 function getYtDlpMetadata(url) {
     return new Promise((resolve, reject) => {
