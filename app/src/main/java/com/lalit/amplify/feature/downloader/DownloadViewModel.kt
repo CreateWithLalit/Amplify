@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -162,7 +163,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
             val fileName = if (currentTrack != null) {
                 generateFileName(currentTrack)
             } else {
-                "manual_download_${System.currentTimeMillis()}.m4a" // Just a placeholder (m4a) for manual downloads
+                "manual_download_${System.currentTimeMillis()}.mp3" // Just a placeholder, manual doesn't really check duplicates well without a fixed name
             }
 
             val exists = if (destUri != null) {
@@ -211,7 +212,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
             )
         } else {
             // Manual URL flow
-            val fileName = "manual_download_${System.currentTimeMillis()}.m4a"
+            val fileName = "manual_download_${System.currentTimeMillis()}.mp3"
             DownloadTask(
                 id = System.currentTimeMillis().toString(),
                 trackTitle = "Manual Download",
@@ -219,8 +220,8 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
                 streamUrl = manual,
                 thumbnailUrl = null,
                 fileName = fileName,
-                fileExtension = "m4a",
-                contentType = "audio/mp4",
+                fileExtension = "mp3",
+                contentType = "audio/mpeg",
                 destinationUri = destUri,
                 audioQuality = "Unknown"
             )
@@ -232,6 +233,20 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
                     // Finalize MediaStore entry if applicable
                     if (destUri.toString().contains(MediaStore.AUTHORITY)) {
                         AmplifyDownloadManager.finalizeMediaStoreEntry(context, fileUri)
+                    }
+
+                    // Log and sanity-check the saved file
+                    try {
+                        val mime = context.contentResolver.getType(fileUri)
+                        Log.d("AmplifyDownload", "Downloaded fileUri=$fileUri mime=$mime")
+                        // Attempt to open input stream to ensure readability
+                        context.contentResolver.openInputStream(fileUri)?.use { stream ->
+                            val probe = ByteArray(8)
+                            val read = stream.read(probe)
+                            Log.d("AmplifyDownload", "Read $read bytes from downloaded file: ${probe.joinToString()}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("AmplifyDownload", "Failed to probe downloaded file", e)
                     }
 
                     // Auto-import to library if enabled
@@ -268,7 +283,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
 
             // Fallback: MediaStore public Music folder (no permission needed on Android 10+)
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
-                val fileName = track?.let { generateFileName(it) } ?: "download.m4a"
+                val fileName = track?.let { generateFileName(it) } ?: "download.mp3"
                 AmplifyDownloadManager.createMediaStoreEntry(
                     context,
                     fileName,
@@ -319,7 +334,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
             android.media.MediaScannerConnection.scanFile(
                 context,
                 arrayOf(it),
-                arrayOf("audio/mp4"),
+                arrayOf("audio/mpeg"),
                 null
             )
         }

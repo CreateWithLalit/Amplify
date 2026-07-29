@@ -36,7 +36,8 @@ function getYtDlpMetadata(url) {
             '--no-playlist',
             '--no-warnings',
             '--no-check-certificate',
-            '-f', 'ba[ext=m4a]/ba',
+            '--extract-audio',
+            '--audio-format', 'mp3',
             url
         ]);
 
@@ -106,32 +107,31 @@ app.get('/stream', async (req, res) => {
     }
 
     try {
-        let streamUrl;
-        const cachedData = cache.get(videoUrl);
+        // Spawn yt-dlp to extract audio and output MP3 to stdout, piping to response
+        const command = require('fs').existsSync('./yt-dlp') ? './yt-dlp' : 'yt-dlp';
+        const ytDlp = spawn(command, [
+            '--no-playlist',
+            '--no-warnings',
+            '--no-check-certificate',
+            '-o', '-',
+            '--extract-audio',
+            '--audio-format', 'mp3',
+            videoUrl
+        ]);
 
-        if (cachedData) {
-            streamUrl = cachedData.audioStreamUrl;
-        } else {
-            const metadata = await getYtDlpMetadata(videoUrl);
-            streamUrl = metadata.url;
-        }
+        res.setHeader('Content-Type', 'audio/mpeg');
 
-        const response = await axios({
-            method: 'get',
-            url: streamUrl,
-            responseType: 'stream',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-            }
+        ytDlp.stdout.pipe(res);
+
+        ytDlp.stderr.on('data', (data) => {
+            console.error('yt-dlp:', data.toString());
         });
 
-        // Forward headers
-        res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mp4');
-        if (response.headers['content-length']) {
-            res.setHeader('Content-Length', response.headers['content-length']);
-        }
-
-        response.data.pipe(res);
+        ytDlp.on('close', (code) => {
+            if (code !== 0) {
+                console.error(`yt-dlp exited with code ${code}`);
+            }
+        });
     } catch (error) {
         console.error('Stream Error:', error.message);
         res.status(500).send('Failed to stream audio');

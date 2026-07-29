@@ -319,7 +319,7 @@ class AmplifyDownloadManager(private val context: Context) {
             fileName: String,
             title: String,
             artist: String,
-            mimeType: String = "audio/mp4"
+            mimeType: String = "audio/mpeg"
         ): Uri? {
             val resolver = context.contentResolver
             val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
