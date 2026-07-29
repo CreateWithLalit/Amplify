@@ -1,6 +1,8 @@
 const express = require('express');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const NodeCache = require('node-cache');
 
 const app = express();
@@ -92,29 +94,60 @@ app.all('/download', async (req, res) => {
     console.warn('Metadata unavailable for download:', error.message);
   }
 
-  res.setHeader('Content-Type', 'audio/mpeg');
-  res.setHeader('Content-Disposition', `attachment; filename="${title}.mp3"`);
-
+  // Download to an isolated temporary directory first. Post-processing cannot
+  // reliably embed album art into an MP3 written directly to stdout.
+  const jobDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'amplify-'));
+  const outputTemplate = path.join(jobDirectory, 'audio.%(ext)s');
+  let audioStream;
+  let clientDisconnected = false;
+  const cleanup = () => fs.rm(jobDirectory, { recursive: true, force: true }, () => {});
   const ytProcess = spawn(ytDlpCommand(), [
     '--no-playlist', '--no-warnings', '-f', 'bestaudio',
     '--extract-audio', '--audio-format', 'mp3',
+    '--embed-thumbnail', '--convert-thumbnails', 'jpg', '--add-metadata',
     '--postprocessor-args', `ffmpeg:-b:a ${bitrate}`,
-    '-o', '-', url
+    '-o', outputTemplate, url
   ]);
-  ytProcess.stdout.pipe(res);
   ytProcess.stderr.on('data', data => console.error(`yt-dlp: ${data}`));
   ytProcess.on('error', error => {
     console.error('Download process error:', error.message);
+    cleanup();
     if (!res.headersSent) res.status(500).json({ error: 'Could not start yt-dlp.' });
   });
-  ytProcess.on('close', code => { if (code !== 0) console.error(`yt-dlp exited with ${code}`); });
-  // A POST request is closed as soon as its JSON body has been read. Listening to
-  // `req.close` therefore killed yt-dlp immediately and produced a zero-byte MP3.
-  // Only terminate the child process when the client disconnects before the audio
-  // response has completed.
-  res.on('close', () => {
-    if (!res.writableEnded) ytProcess.kill('SIGTERM');
+  ytProcess.on('close', code => {
+    if (clientDisconnected) return cleanup();
+    if (code !== 0) {
+      console.error(`yt-dlp exited with ${code}`);
+      cleanup();
+      return res.status(502).json({ error: 'Could not create the audio file.' });
+    }
+
+    const audioPath = path.join(jobDirectory, 'audio.mp3');
+    if (!fs.existsSync(audioPath)) {
+      cleanup();
+      return res.status(502).json({ error: 'Audio conversion did not produce an MP3 file.' });
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${title}.mp3"`);
+    res.setHeader('Content-Length', fs.statSync(audioPath).size);
+    audioStream = fs.createReadStream(audioPath);
+    audioStream.on('error', error => {
+      console.error('Audio stream error:', error.message);
+      cleanup();
+      if (!res.headersSent) res.status(500).json({ error: 'Could not stream the audio file.' });
+      else res.destroy(error);
+    });
+    audioStream.pipe(res);
   });
+
+  res.on('close', () => {
+    clientDisconnected = true;
+    if (ytProcess.exitCode == null) ytProcess.kill('SIGTERM');
+    audioStream?.destroy();
+    cleanup();
+  });
+  res.on('finish', cleanup);
 });
 
 app.listen(port, '0.0.0.0', () => console.log(`Amplify resolver listening on ${port}`));
