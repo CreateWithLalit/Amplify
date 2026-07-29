@@ -108,7 +108,13 @@ app.all('/download', async (req, res) => {
     if (!res.headersSent) res.status(500).json({ error: 'Could not start yt-dlp.' });
   });
   ytProcess.on('close', code => { if (code !== 0) console.error(`yt-dlp exited with ${code}`); });
-  req.on('close', () => { if (!res.writableEnded) ytProcess.kill('SIGTERM'); });
+  // A POST request is closed as soon as its JSON body has been read. Listening to
+  // `req.close` therefore killed yt-dlp immediately and produced a zero-byte MP3.
+  // Only terminate the child process when the client disconnects before the audio
+  // response has completed.
+  res.on('close', () => {
+    if (!res.writableEnded) ytProcess.kill('SIGTERM');
+  });
 });
 
 app.listen(port, '0.0.0.0', () => console.log(`Amplify resolver listening on ${port}`));
