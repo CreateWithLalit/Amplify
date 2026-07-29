@@ -137,12 +137,7 @@ fun AmplifyNavHost(
                     DownloadScreen(downloadViewModel)
                 }
                 composable(AmplifyRoutes.LIBRARY) {
-                    LibraryScreen(
-                        viewModel = musicViewModel,
-                        onOpenFullPlayer = {
-                            navController.navigate(AmplifyRoutes.FULL_PLAYER)
-                        }
-                    )
+                    LibraryScreen(viewModel = musicViewModel)
                 }
                 composable(AmplifyRoutes.SETTINGS) {
                     SettingsScreen(
