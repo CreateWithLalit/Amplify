@@ -203,6 +203,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
                 trackTitle = currentTrack.title,
                 trackArtist = currentTrack.artist,
                 streamUrl = currentTrack.streamUrl,
+                requestBody = "{\"url\":\"${currentTrack.webUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\",\"quality\":\"${_defaultQuality.value.name.lowercase()}\"}",
                 thumbnailUrl = currentTrack.thumbnailUrl,
                 fileName = generateFileName(currentTrack),
                 fileExtension = currentTrack.fileExtension,

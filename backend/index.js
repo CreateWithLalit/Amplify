@@ -1,143 +1,114 @@
 const express = require('express');
 const { spawn } = require('child_process');
-const axios = require('axios');
+const fs = require('fs');
 const NodeCache = require('node-cache');
 
 const app = express();
 const port = process.env.PORT || 8080;
-const cache = new NodeCache({ stdTTL: 21600 }); // 6 hours cache
+const cache = new NodeCache({ stdTTL: 21600 });
 
-// Middleware to log requests
+app.use(express.json({ limit: '16kb' }));
 app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-    next();
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  next();
 });
 
-// Root route for status check
-app.get('/', (req, res) => {
-    res.json({
-        status: "online",
-        message: "Amplify YouTube Resolver is running",
-        endpoints: {
-            resolve: "/resolve?url=<youtube_url>",
-            stream: "/stream?url=<youtube_url>"
-        }
-    });
-});
-
-// Helper to run yt-dlp
-function getYtDlpMetadata(url) {
-    return new Promise((resolve, reject) => {
-        // Use local ./yt-dlp if it exists, otherwise fallback to global
-        const command = require('fs').existsSync('./yt-dlp') ? './yt-dlp' : 'yt-dlp';
-
-        const ytDlp = spawn(command, [
-            '--dump-json',
-            '--no-playlist',
-            '--no-warnings',
-            '--no-check-certificate',
-            '--extract-audio',
-            '--audio-format', 'mp3',
-            url
-        ]);
-
-        let output = '';
-        let error = '';
-
-        ytDlp.stdout.on('data', (data) => {
-            output += data;
-        });
-
-        ytDlp.stderr.on('data', (data) => {
-            error += data;
-        });
-
-        ytDlp.on('close', (code) => {
-            if (code !== 0) {
-                reject(new Error(error || `yt-dlp exited with code ${code}`));
-                return;
-            }
-            try {
-                resolve(JSON.parse(output));
-            } catch (e) {
-                reject(e);
-            }
-        });
-    });
+function ytDlpCommand() {
+  return fs.existsSync('./yt-dlp') ? './yt-dlp' : 'yt-dlp';
 }
 
-// GET /resolve?url=<youtube_url>
-app.get('/resolve', async (req, res) => {
-    const videoUrl = req.query.url;
-    if (!videoUrl) {
-        return res.status(400).json({ error: 'Missing url parameter' });
+function isYouTubeUrl(value) {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === 'youtu.be' || host.endsWith('.youtube.com') || host === 'youtube.com';
+  } catch {
+    return false;
+  }
+}
+
+function metadataFor(url) {
+  return new Promise((resolve, reject) => {
+    const process = spawn(ytDlpCommand(), ['--dump-single-json', '--no-playlist', '--no-warnings', url]);
+    let stdout = '';
+    let stderr = '';
+    process.stdout.on('data', data => { stdout += data; });
+    process.stderr.on('data', data => { stderr += data; });
+    process.on('error', reject);
+    process.on('close', code => {
+      if (code !== 0) return reject(new Error(stderr || `yt-dlp exited with ${code}`));
+      try { resolve(JSON.parse(stdout)); } catch (error) { reject(error); }
+    });
+  });
+}
+
+function cleanFilename(title) {
+  return (title || 'audio').replace(/[\\/:*?"<>|]/g, '').trim().slice(0, 120) || 'audio';
+}
+
+function readRequest(req) {
+  // POST is the supported mobile API. GET keeps already released app builds working.
+  return req.method === 'GET' ? req.query : req.body;
+}
+
+app.get('/', (_req, res) => res.json({
+  status: 'online',
+  endpoints: { resolve: 'POST /resolve', download: 'POST /download' }
+}));
+
+app.all('/resolve', async (req, res) => {
+  const { url } = readRequest(req);
+  if (!isYouTubeUrl(url)) return res.status(400).json({ error: 'A valid YouTube URL is required.' });
+
+  try {
+    let info = cache.get(`metadata:${url}`);
+    if (!info) {
+      info = await metadataFor(url);
+      cache.set(`metadata:${url}`, info);
     }
-
-    const cachedData = cache.get(videoUrl);
-    if (cachedData) {
-        return res.json(cachedData);
-    }
-
-    try {
-        const metadata = await getYtDlpMetadata(videoUrl);
-
-        const result = {
-            title: metadata.title,
-            artist: metadata.uploader,
-            thumbnailUrl: metadata.thumbnail,
-            durationSeconds: metadata.duration,
-            audioStreamUrl: metadata.url,
-            expiresInSeconds: 21600
-        };
-
-        cache.set(videoUrl, result);
-        res.json(result);
-    } catch (error) {
-        console.error('Resolve Error:', error.message);
-        res.status(500).json({ error: 'Failed to resolve YouTube URL', message: error.message });
-    }
+    res.json({
+      title: info.title || 'Unknown title',
+      artist: info.uploader || info.channel || 'Unknown artist',
+      duration: info.duration || 0,
+      thumbnail: info.thumbnail || null,
+      formats: ['low', 'medium', 'high']
+    });
+  } catch (error) {
+    console.error('Resolve error:', error.message);
+    res.status(502).json({ error: 'Could not resolve this YouTube URL.' });
+  }
 });
 
-// GET /stream?url=<youtube_url>
-// Mode A: Proxying the stream
-app.get('/stream', async (req, res) => {
-    const videoUrl = req.query.url;
-    if (!videoUrl) {
-        return res.status(400).send('Missing url parameter');
-    }
+app.all('/download', async (req, res) => {
+  const { url, quality = 'medium' } = readRequest(req);
+  if (!isYouTubeUrl(url)) return res.status(400).json({ error: 'A valid YouTube URL is required.' });
 
-    try {
-        // Spawn yt-dlp to extract audio and output MP3 to stdout, piping to response
-        const command = require('fs').existsSync('./yt-dlp') ? './yt-dlp' : 'yt-dlp';
-        const ytDlp = spawn(command, [
-            '--no-playlist',
-            '--no-warnings',
-            '--no-check-certificate',
-            '-o', '-',
-            '--extract-audio',
-            '--audio-format', 'mp3',
-            videoUrl
-        ]);
+  const bitrate = { low: '128k', medium: '192k', high: '320k' }[String(quality).toLowerCase()] || '192k';
+  let title = 'audio';
+  try {
+    const info = cache.get(`metadata:${url}`) || await metadataFor(url);
+    cache.set(`metadata:${url}`, info);
+    title = cleanFilename(info.title);
+  } catch (error) {
+    console.warn('Metadata unavailable for download:', error.message);
+  }
 
-        res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Content-Disposition', `attachment; filename="${title}.mp3"`);
 
-        ytDlp.stdout.pipe(res);
-
-        ytDlp.stderr.on('data', (data) => {
-            console.error('yt-dlp:', data.toString());
-        });
-
-        ytDlp.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`yt-dlp exited with code ${code}`);
-            }
-        });
-    } catch (error) {
-        console.error('Stream Error:', error.message);
-        res.status(500).send('Failed to stream audio');
-    }
+  const ytProcess = spawn(ytDlpCommand(), [
+    '--no-playlist', '--no-warnings', '-f', 'bestaudio',
+    '--extract-audio', '--audio-format', 'mp3',
+    '--postprocessor-args', `ffmpeg:-b:a ${bitrate}`,
+    '-o', '-', url
+  ]);
+  ytProcess.stdout.pipe(res);
+  ytProcess.stderr.on('data', data => console.error(`yt-dlp: ${data}`));
+  ytProcess.on('error', error => {
+    console.error('Download process error:', error.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Could not start yt-dlp.' });
+  });
+  ytProcess.on('close', code => { if (code !== 0) console.error(`yt-dlp exited with ${code}`); });
+  req.on('close', () => { if (!res.writableEnded) ytProcess.kill('SIGTERM'); });
 });
 
-app.listen(port, '0.0.0.0', () => {
-    console.log(`Amplify Resolver Backend listening at http://0.0.0.0:${port}`);
-});
+app.listen(port, '0.0.0.0', () => console.log(`Amplify resolver listening on ${port}`));

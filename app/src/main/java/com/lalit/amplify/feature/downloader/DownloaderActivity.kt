@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.lalit.amplify.feature.downloader.model.DownloadQuality
@@ -114,10 +116,32 @@ class DownloaderActivity : ComponentActivity() {
 }
 
 @Composable
+fun DownloadScreen(viewModel: DownloadViewModel = viewModel()) {
+    val context = LocalContext.current
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let {
+            context.contentResolver.takePersistableUriPermission(
+                it,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            val folder = DocumentFile.fromTreeUri(context, it)
+            viewModel.setDestinationUri(it, folder?.name ?: "Selected folder")
+        }
+    }
+    DownloaderScreen(
+        viewModel = viewModel,
+        onBack = { viewModel.reset() },
+        onPickFolder = { folderPicker.launch(null) },
+        showBack = false
+    )
+}
+
+@Composable
 fun DownloaderScreen(
     viewModel: DownloadViewModel,
     onBack: () -> Unit,
-    onPickFolder: () -> Unit
+    onPickFolder: () -> Unit,
+    showBack: Boolean = true
 ) {
     val track by viewModel.track.collectAsState()
     val manualUrl by viewModel.manualUrl.collectAsState()
@@ -147,7 +171,7 @@ fun DownloaderScreen(
                     .padding(top = 28.dp, bottom = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                if (showBack) IconButton(onClick = onBack) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
@@ -173,46 +197,6 @@ fun DownloaderScreen(
                     error = resolveError
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "OR",
-                    color = Color(0xFF444444),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "Direct Audio URL",
-                    color = Color(0xFF888888),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-                OutlinedTextField(
-                    value = manualUrl,
-                    onValueChange = { viewModel.setManualUrl(it) },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text("Paste direct link (.mp3, .m4a)...", color = Color(0xFF444444))
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Link, contentDescription = null, tint = Color(0xFF666666))
-                    },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedContainerColor = Color(0xFF1A1A1A),
-                        unfocusedContainerColor = Color(0xFF1A1A1A),
-                        focusedBorderColor = Color(0xFF1DB954),
-                        unfocusedBorderColor = Color(0xFF2A2A2A)
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    singleLine = true
-                )
             } else {
                 MetadataPreviewCard(
                     track = track!!,

@@ -15,7 +15,8 @@ data class DownloadTask(
     val fileExtension: String,
     val contentType: String,
     val destinationUri: Uri,        // SAF tree/document URI
-    val audioQuality: String
+    val audioQuality: String,
+    val requestBody: String? = null
 )
 
 /**

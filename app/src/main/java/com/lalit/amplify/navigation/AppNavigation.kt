@@ -13,11 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -48,13 +47,13 @@ import com.lalit.amplify.feature.library.LibraryScreen
 import com.lalit.amplify.feature.player.FullPlayerScreen
 import com.lalit.amplify.feature.player.MiniPlayer
 import com.lalit.amplify.feature.player.MusicViewModel
-import com.lalit.amplify.feature.search.SearchScreen
+import com.lalit.amplify.feature.downloader.DownloadScreen
 import com.lalit.amplify.feature.settings.SettingsScreen
 
 // ─── Route constants ───────────────────────────────────────────────────────────
 object AmplifyRoutes {
     const val HOME = "home"
-    const val SEARCH = "search"
+    const val DOWNLOAD = "download"
     const val LIBRARY = "library"
     const val SETTINGS = "settings"
     const val FULL_PLAYER = "full_player"
@@ -70,7 +69,7 @@ data class BottomNavItem(
 
 private val bottomNavItems = listOf(
     BottomNavItem(AmplifyRoutes.HOME, "Home", Icons.Filled.Home, Icons.Outlined.Home),
-    BottomNavItem(AmplifyRoutes.SEARCH, "Search", Icons.Filled.Search, Icons.Outlined.Search),
+    BottomNavItem(AmplifyRoutes.DOWNLOAD, "Download", Icons.Filled.Download, Icons.Filled.Download),
     BottomNavItem(AmplifyRoutes.LIBRARY, "Library", Icons.Filled.LibraryMusic, Icons.Outlined.LibraryMusic),
     BottomNavItem(AmplifyRoutes.SETTINGS, "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
 )
@@ -134,13 +133,8 @@ fun AmplifyNavHost(
                         }
                     )
                 }
-                composable(AmplifyRoutes.SEARCH) {
-                    SearchScreen(
-                        musicViewModel = musicViewModel,
-                        onOpenFullPlayer = {
-                            navController.navigate(AmplifyRoutes.FULL_PLAYER)
-                        }
-                    )
+                composable(AmplifyRoutes.DOWNLOAD) {
+                    DownloadScreen(downloadViewModel)
                 }
                 composable(AmplifyRoutes.LIBRARY) {
                     LibraryScreen(
