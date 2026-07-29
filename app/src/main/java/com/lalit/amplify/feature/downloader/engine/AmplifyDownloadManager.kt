@@ -20,6 +20,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import java.io.File
 import java.io.IOException
@@ -80,10 +82,19 @@ class AmplifyDownloadManager(private val context: Context) {
             }
 
             // Execute download
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(task.streamUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                .build()
+                .header("User-Agent", "Amplify Android")
+
+            if (task.requestBody != null) {
+                requestBuilder.post(
+                    task.requestBody.toRequestBody("application/json".toMediaType())
+                )
+            } else {
+                requestBuilder.get()
+            }
+
+            val request = requestBuilder.build()
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
