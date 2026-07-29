@@ -16,9 +16,13 @@ app.use((req, res, next) => {
 // Helper to run yt-dlp
 function getYtDlpMetadata(url) {
     return new Promise((resolve, reject) => {
+        // Use 'python3 -m yt_dlp' or just 'yt-dlp'
+        // Railway with nixpacks should have yt-dlp in the path
         const ytDlp = spawn('yt-dlp', [
             '--dump-json',
             '--no-playlist',
+            '--no-warnings',
+            '--no-check-certificate',
             '-f', 'ba[ext=m4a]/ba',
             url
         ]);
