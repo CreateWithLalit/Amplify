@@ -23,6 +23,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
+import com.lalit.amplify.feature.downloader.engine.NetworkClients
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -39,17 +40,8 @@ import java.util.concurrent.TimeUnit
  */
 class AmplifyDownloadManager(private val context: Context) {
 
-    private val client: OkHttpClient by lazy {
-        val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
-        }
-        OkHttpClient.Builder()
-            .addInterceptor(logging)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .build()
-    }
+    // Use a shared resilient client with DoH + retry
+    private val client: OkHttpClient = NetworkClients.client
 
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.Idle)
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()

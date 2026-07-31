@@ -15,7 +15,7 @@ import javax.inject.Singleton
 /** Talks to the Amplify backend; it resolves metadata and supplies the MP3 stream URL. */
 @Singleton
 class YouTubeResolverRepository @Inject constructor() {
-    private val client = OkHttpClient()
+    private val client = com.lalit.amplify.feature.downloader.engine.NetworkClients.client
     private var backendBaseUrl = "https://amplify-production-0b58.up.railway.app"
 
     fun setBackendUrl(url: String) {

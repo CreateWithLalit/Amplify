@@ -84,6 +84,8 @@ dependencies {
 
     // OkHttp for internet search API calls — NEW
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // DNS-over-HTTPS for robust DNS resolution (Cloudflare) - fallback to system DNS
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
 
     // OkHttp logging interceptor
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
