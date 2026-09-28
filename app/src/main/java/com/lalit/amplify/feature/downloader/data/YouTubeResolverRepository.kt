@@ -20,14 +20,11 @@ import javax.inject.Singleton
  */
 @Singleton
 class YouTubeResolverRepository @Inject constructor() {
-    private val client = com.lalit.amplify.feature.downloader.engine.NetworkClients.client
+    private var client: OkHttpClient = com.lalit.amplify.feature.downloader.engine.NetworkClients.client
     private var backendBaseUrl = DownloadPreferences.DEFAULT_BACKEND_URL
 
-    companion object {
-        private const val TAG = "YouTubeResolver"
-        private val YOUTUBE_ID_PATTERN = Pattern.compile(
-            "(?:https?://)?(?:www\\.|m\\.|music\\.)?(?:youtube\\.com/(?:watch\\?v=|embed/|v/|shorts/)|youtu\\.be/)([a-zA-Z0-9_-]{11})"
-        )
+    constructor(client: OkHttpClient) : this() {
+        this.client = client
     }
 
     fun setBackendUrl(url: String) {
@@ -64,9 +61,8 @@ class YouTubeResolverRepository @Inject constructor() {
         val canonicalUrl = sanitizeYouTubeUrl(youtubeUrl)
         val videoId = extractVideoId(canonicalUrl)
 
-        Log.d(TAG, "Resolving videoId=${videoId ?: "unknown"} via backend: $backendBaseUrl")
+        Log.d(TAG, "Resolving videoId=${videoId ?: "unknown"} via backend: $backendBaseUrl stage=RESOLVE_START")
 
-        // Try primary backend resolver
         try {
             val requestJson = JSONObject().put("url", canonicalUrl).toString()
             val request = Request.Builder()
@@ -76,51 +72,56 @@ class YouTubeResolverRepository @Inject constructor() {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string().orEmpty()
-                if (response.isSuccessful) {
-                    val json = JSONObject(responseBody)
-                    val title = json.optString("title", "Unknown title")
-                    val artist = json.optString("artist", "Unknown artist")
-                    val durationMillis = json.optLong("duration", json.optLong("durationSeconds", 0L)) * 1000
-                    val thumbnail = json.optString("thumbnail", json.optString("thumbnailUrl", "")).ifBlank { null }
-                    val streamUrl = json.optString("streamUrl", "$backendBaseUrl/download")
+                val responseBody = try { response.body?.string().orEmpty() } catch (_: Exception) { "" }
 
-                    Log.d(TAG, "Backend resolve succeeded for: $title by $artist")
+                if (!response.isSuccessful) {
+                    val message = parseErrorMessage(response.code, responseBody)
+                    Log.e(TAG, "Resolver HTTP error code=${response.code} stage=RESOLVE_FAILED msg=$message")
 
-                    return@withContext Result.success(
-                        DownloadableTrack(
-                            id = videoId ?: canonicalUrl.hashCode().toString(),
-                            title = title,
-                            artist = artist,
-                            duration = durationMillis,
-                            thumbnailUrl = thumbnail,
-                            sourceLabel = "YouTube",
-                            webUrl = canonicalUrl,
-                            streamUrl = streamUrl,
-                            audioQuality = "MP3",
-                            fileExtension = "mp3",
-                            contentType = "audio/mpeg"
-                        )
-                    )
-                }
-
-                // If backend returned error, parse error message
-                val errorMessage = extractErrorMessage(response.code, responseBody)
-                Log.w(TAG, "Backend resolve returned HTTP ${response.code}: $errorMessage")
-
-                // If it's a 401 Unauthorized, try oEmbed fallback for metadata so user has context
-                if (videoId != null && (response.code == 401 || response.code == 403 || response.code == 404 || response.code >= 500)) {
-                    Log.i(TAG, "Attempting public oEmbed metadata fallback for videoId: $videoId")
-                    val oEmbedResult = fetchOEmbedMetadata(videoId, canonicalUrl)
-                    if (oEmbedResult != null) {
-                        return@withContext Result.success(oEmbedResult)
+                    // If it's a 401/403/404/500, attempt zero-auth public oEmbed fallback for metadata
+                    if (videoId != null && (response.code == 401 || response.code == 403 || response.code == 404 || response.code >= 500)) {
+                        Log.i(TAG, "Attempting public oEmbed metadata fallback for videoId: $videoId")
+                        val oEmbedResult = fetchOEmbedMetadata(videoId, canonicalUrl)
+                        if (oEmbedResult != null) {
+                            return@withContext Result.success(oEmbedResult)
+                        }
                     }
+
+                    return@withContext Result.failure(IOException(message))
                 }
 
-                return@withContext Result.failure(IOException(errorMessage))
+                if (responseBody.isBlank()) {
+                    Log.e(TAG, "Resolver returned empty body stage=RESOLVE_EMPTY")
+                    return@withContext Result.failure(IOException("Empty response from resolver backend"))
+                }
+
+                val json = JSONObject(responseBody)
+                val title = json.optString("title", "Unknown title")
+                val artist = json.optString("artist", "Unknown artist")
+                val durationMillis = json.optLong("duration", json.optLong("durationSeconds", 0L)) * 1000
+                val thumbnail = json.optString("thumbnail", json.optString("thumbnailUrl", "")).ifBlank { null }
+                val streamUrl = json.optString("streamUrl", "$backendBaseUrl/download")
+
+                Log.d(TAG, "Resolver success title='$title' artist='$artist' stage=RESOLVE_SUCCESS")
+
+                Result.success(
+                    DownloadableTrack(
+                        id = videoId ?: canonicalUrl.hashCode().toString(),
+                        title = title,
+                        artist = artist,
+                        duration = durationMillis,
+                        thumbnailUrl = thumbnail,
+                        sourceLabel = "YouTube",
+                        webUrl = canonicalUrl,
+                        streamUrl = streamUrl,
+                        audioQuality = "MP3",
+                        fileExtension = "mp3",
+                        contentType = "audio/mpeg"
+                    )
+                )
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Backend connection failed: ${e.message}. Attempting public oEmbed fallback...")
+            Log.e(TAG, "Backend connection failed: ${e.message}. Attempting public oEmbed fallback...")
             if (videoId != null) {
                 val oEmbedResult = fetchOEmbedMetadata(videoId, canonicalUrl)
                 if (oEmbedResult != null) {
@@ -155,7 +156,6 @@ class YouTubeResolverRepository @Inject constructor() {
                     "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
                 }
 
-                // Parse artist and title if formatted as "Artist - Title"
                 val (parsedArtist, parsedTitle) = if (rawTitle.contains(" - ")) {
                     val parts = rawTitle.split(" - ", limit = 2)
                     parts[0].trim() to parts[1].trim()
@@ -185,35 +185,35 @@ class YouTubeResolverRepository @Inject constructor() {
         }
     }
 
-    private fun extractErrorMessage(statusCode: Int, responseBody: String): String {
-        val serverMsg = try {
-            val json = JSONObject(responseBody)
-            json.optString("error", json.optString("message", ""))
-        } catch (_: Exception) {
-            ""
-        }
+    companion object {
+        private const val TAG = "YouTubeResolver"
+        private val YOUTUBE_ID_PATTERN = Pattern.compile(
+            "(?:https?://)?(?:www\\.|m\\.|music\\.)?(?:youtube\\.com/(?:watch\\?v=|embed/|v/|shorts/)|youtu\\.be/)([a-zA-Z0-9_-]{11})"
+        )
 
-        return when (statusCode) {
-            401 -> {
-                if (serverMsg.isNotBlank()) "Unauthorized (401): $serverMsg"
-                else "Unauthorized (401): Access restricted or authentication required by provider."
+        fun parseErrorMessage(code: Int, errorBody: String?): String {
+            val serverMessage = try {
+                if (!errorBody.isNullOrBlank()) {
+                    val regex = Regex("\"error\"\\s*:\\s*\"([^\"]+)\"")
+                    regex.find(errorBody)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+                        ?: JSONObject(errorBody).optString("error").takeIf { it.isNotBlank() }
+                } else null
+            } catch (_: Exception) {
+                null
             }
-            403 -> {
-                if (serverMsg.isNotBlank()) "Forbidden (403): $serverMsg"
-                else "Forbidden (403): The requested video is restricted or unavailable."
+
+            if (!serverMessage.isNullOrBlank()) {
+                return serverMessage
             }
-            404 -> {
-                if (serverMsg.isNotBlank()) "Not Found (404): $serverMsg"
-                else "Resolver service endpoint or video not found (404)."
-            }
-            429 -> "Rate limit reached (429): Please wait a moment before trying again."
-            in 500..599 -> {
-                if (serverMsg.isNotBlank()) "Server Error ($statusCode): $serverMsg"
-                else "Resolver server error ($statusCode). Please try again shortly."
-            }
-            else -> {
-                if (serverMsg.isNotBlank()) "Error ($statusCode): $serverMsg"
-                else "Resolver returned HTTP $statusCode"
+
+            return when (code) {
+                401 -> "YouTube or provider access denied (401 Unauthorized). Provider authentication or bot verification required."
+                403 -> "Access forbidden by provider (403 Forbidden). Content restricted or region-locked."
+                404 -> "Track or link not found (404 Not Found)."
+                429 -> "Rate limit exceeded (429). Please wait a moment and try again."
+                502 -> "Could not resolve YouTube link (502 Bad Gateway). Service unable to fetch track metadata."
+                in 500..599 -> "Resolver backend server error (HTTP $code)."
+                else -> "Resolver returned HTTP $code"
             }
         }
     }

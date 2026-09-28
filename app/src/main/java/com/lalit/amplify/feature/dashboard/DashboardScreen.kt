@@ -1,9 +1,6 @@
-// app/src/main/java/com/lalit/amplify/feature/dashboard/DashboardScreen.kt
-// MERGE INSTRUCTION: CREATE this new file. New package: feature/dashboard/
-// This is the new HOME tab. The old HomeScreen.kt becomes the Library screen's song list.
-
 package com.lalit.amplify.feature.dashboard
 
+import android.content.Intent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,33 +22,40 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.util.UnstableApi
 import com.lalit.amplify.R
 import com.lalit.amplify.core.model.Song
 import com.lalit.amplify.core.ui.AlbumArtImage
-import com.lalit.amplify.feature.player.MusicViewModel
+import com.lalit.amplify.feature.downloader.DownloaderActivity
 import com.lalit.amplify.feature.player.MiniPlayer
+import com.lalit.amplify.feature.player.MusicViewModel
 
 @UnstableApi
 @Composable
@@ -59,6 +63,7 @@ fun DashboardScreen(
     viewModel: MusicViewModel,
     onOpenFullPlayer: () -> Unit
 ) {
+    val context = LocalContext.current
     val songs by viewModel.songs.collectAsState()
     val playerState by viewModel.playerState.collectAsState()
     val favoriteIds by viewModel.favoriteIds.collectAsState(initial = emptySet())
@@ -121,6 +126,20 @@ fun DashboardScreen(
                 }
             }
 
+            // Paste Link Downloader Section
+            item {
+                DashboardPasteLinkCard(
+                    onOpenDownloader = { url ->
+                        val intent = Intent(context, DownloaderActivity::class.java).apply {
+                            if (!url.isNullOrBlank()) {
+                                putExtra(DownloaderActivity.EXTRA_INITIAL_URL, url)
+                            }
+                        }
+                        context.startActivity(intent)
+                    }
+                )
+            }
+
             // Quick Play Grid
             if (songs.isNotEmpty()) {
                 item {
@@ -149,11 +168,11 @@ fun DashboardScreen(
                         modifier = Modifier.padding(horizontal = 20.dp)
                     )
                     section.songs.isNotEmpty() -> {
-                    HorizontalSongRow(
-                        songs = section.songs,
-                        playingSongId = playerState.currentSong?.id,
-                        onSongClick = { song -> viewModel.playSong(song, section.songs) }
-                    )
+                        HorizontalSongRow(
+                            songs = section.songs,
+                            playingSongId = playerState.currentSong?.id,
+                            onSongClick = { song -> viewModel.playSong(song, section.songs) }
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -295,6 +314,81 @@ fun DashboardScreen(
     }
 }
 
+@Composable
+private fun DashboardPasteLinkCard(
+    onOpenDownloader: (String) -> Unit
+) {
+    var inputUrl by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF161616))
+            .padding(14.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Link,
+                contentDescription = null,
+                tint = Color(0xFF1DB954),
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Paste Music Link to Download",
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = inputUrl,
+            onValueChange = { inputUrl = it },
+            placeholder = { Text("Paste YouTube URL here...", color = Color(0xFF666666), fontSize = 13.sp) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color(0xFF0F0F0F),
+                unfocusedContainerColor = Color(0xFF0F0F0F),
+                focusedBorderColor = Color(0xFF1DB954),
+                unfocusedBorderColor = Color(0xFF2A2A2A),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            )
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Button(
+                onClick = { onOpenDownloader(inputUrl) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Download,
+                    contentDescription = null,
+                    tint = Color.Black,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Resolve & Download", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
 // Quick Play 2x3 Grid
 @Composable
 private fun QuickPlayGrid(
@@ -321,7 +415,6 @@ private fun QuickPlayGrid(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                // Fill empty slot if odd count
                 if (pair.size == 1) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
@@ -533,4 +626,3 @@ private fun SectionTitle(title: String) {
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 14.dp)
     )
 }
-

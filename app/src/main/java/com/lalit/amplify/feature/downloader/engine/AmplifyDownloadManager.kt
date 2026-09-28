@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
@@ -20,27 +21,15 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.logging.HttpLoggingInterceptor
-import com.lalit.amplify.feature.downloader.engine.NetworkClients
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 /**
  * Core download engine for AMPLIFY.
  * Downloads audio files using OkHttp and writes to SAF-backed destinations.
- *
- * Supports:
- * - Internal app storage (fallback)
- * - SAF user-selected folders
- * - SD card via DocumentFile (if user granted tree URI)
- * - MediaStore for public Music directory
  */
 class AmplifyDownloadManager(private val context: Context) {
 
-    // Use a shared resilient client with DoH + retry
     private val client: OkHttpClient = NetworkClients.client
 
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.Idle)
@@ -49,12 +38,6 @@ class AmplifyDownloadManager(private val context: Context) {
     private var currentTask: DownloadTask? = null
     private var isCancelled = false
 
-    /**
-     * Start a download.
-     * @param task The download task
-     * @param duplicateStrategy How to handle existing files
-     * @return Result containing the final file URI on success
-     */
     suspend fun download(
         task: DownloadTask,
         duplicateStrategy: DuplicateStrategy = DuplicateStrategy.KEEP_BOTH
@@ -62,16 +45,13 @@ class AmplifyDownloadManager(private val context: Context) {
         isCancelled = false
         currentTask = task
         _downloadState.value = DownloadState.Preparing
-
-        var resolvedDestination: Uri? = null
+        var createdDestinationUri: Uri? = null
 
         try {
-            android.util.Log.d(TAG, "Starting download: '${task.trackTitle}' by '${task.trackArtist}' [format=${task.fileExtension}]")
-
-            // Resolve destination and handle duplicates
+            Log.d(TAG, "Starting download task stage=DOWNLOAD_PREPARE title='${task.trackTitle}'")
             val destinationUri = resolveDestination(task, duplicateStrategy)
                 ?: return@withContext Result.failure(IOException("Could not resolve download destination folder"))
-            resolvedDestination = destinationUri
+            createdDestinationUri = destinationUri
 
             if (isCancelled) {
                 _downloadState.value = DownloadState.Cancelled
@@ -79,7 +59,6 @@ class AmplifyDownloadManager(private val context: Context) {
                 return@withContext Result.failure(IOException("Download cancelled"))
             }
 
-            // Execute download
             val requestBuilder = Request.Builder()
                 .url(task.streamUrl)
                 .header("User-Agent", "Amplify-MusicPlayer/1.0 (Android; Mobile)")
@@ -94,43 +73,41 @@ class AmplifyDownloadManager(private val context: Context) {
             }
 
             val request = requestBuilder.build()
+            Log.d(TAG, "Connecting to stream URL stage=DOWNLOAD_CONNECT")
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val code = response.code
                     val errorDetail = when (code) {
-                        401 -> "Unauthorized (401): Stream access denied by provider. Session or credentials required."
-                        403 -> "Forbidden (403): Content is restricted or unavailable from this provider."
-                        404 -> "Not Found (404): Audio stream or endpoint does not exist."
-                        429 -> "Rate Limited (429): Stream server rate limit reached. Please retry in a few moments."
+                        401 -> "Audio stream request unauthorized (HTTP 401)"
+                        403 -> "Audio stream request forbidden (HTTP 403)"
+                        404 -> "Audio stream source not found (HTTP 404)"
+                        429 -> "Audio stream rate limited (HTTP 429)"
                         in 500..599 -> "Server Error ($code): Audio streaming backend is temporarily unavailable."
                         else -> "HTTP $code"
                     }
-                    android.util.Log.w(TAG, "Stream response failed: $errorDetail")
+                    Log.w(TAG, "Stream response failed stage=DOWNLOAD_HTTP_ERROR code=$code msg=$errorDetail")
                     throw IOException(errorDetail)
                 }
 
                 val contentType = response.header("Content-Type").orEmpty()
                 if (contentType.contains("text/html", ignoreCase = true)) {
-                    android.util.Log.e(TAG, "Expected audio stream but server returned HTML ($contentType)")
+                    Log.e(TAG, "Expected audio stream but server returned HTML ($contentType)")
                     throw IOException("Server returned an HTML page instead of an audio stream ($contentType)")
                 }
 
-                val body = response.body ?: throw IOException("Empty response body from stream server")
+                val body = response.body ?: throw IOException("Empty response body from audio server")
                 val totalBytes = body.contentLength()
+                Log.d(TAG, "Stream response received code=${response.code} length=$totalBytes stage=DOWNLOAD_STREAM_START")
 
-                // Write to destination
-                when {
-                    // SAF DocumentFile destination
+                val bytesWritten = when {
                     destinationUri.scheme == "content" &&
                         !destinationUri.toString().contains(MediaStore.AUTHORITY) -> {
                         writeToDocumentFile(destinationUri, body.byteStream(), totalBytes)
                     }
-                    // MediaStore destination (public Music folder)
                     destinationUri.scheme == "content" -> {
                         writeToMediaStore(destinationUri, body.byteStream(), totalBytes)
                     }
-                    // File destination (internal storage)
                     destinationUri.scheme == "file" -> {
                         writeToFile(File(destinationUri.path!!), body.byteStream(), totalBytes)
                     }
@@ -139,18 +116,27 @@ class AmplifyDownloadManager(private val context: Context) {
 
                 if (isCancelled) {
                     _downloadState.value = DownloadState.Cancelled
-                    // Clean up partial file
                     deletePartial(destinationUri)
                     return@withContext Result.failure(IOException("Download cancelled"))
                 }
 
-                android.util.Log.d(TAG, "Download finished successfully: $destinationUri")
+                if (bytesWritten <= 0L) {
+                    deletePartial(destinationUri)
+                    throw IOException("Downloaded file is empty (0 bytes received)")
+                }
+
+                if (totalBytes > 0 && bytesWritten < totalBytes) {
+                    deletePartial(destinationUri)
+                    throw IOException("Download incomplete: expected $totalBytes bytes, received $bytesWritten")
+                }
+
+                Log.d(TAG, "Download complete bytes=$bytesWritten stage=DOWNLOAD_SUCCESS")
                 _downloadState.value = DownloadState.Success(destinationUri, task.fileName)
                 Result.success(destinationUri)
             }
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "Download failed: ${e.message}", e)
-            resolvedDestination?.let { deletePartial(it) }
+            Log.e(TAG, "Download failed task='${task.trackTitle}' stage=DOWNLOAD_ERROR", e)
+            createdDestinationUri?.let { deletePartial(it) }
             _downloadState.value = DownloadState.Error(e.message ?: "Download failed")
             Result.failure(e)
         }
@@ -167,9 +153,6 @@ class AmplifyDownloadManager(private val context: Context) {
         _downloadState.value = DownloadState.Idle
     }
 
-    /**
-     * Check if a file already exists at the destination.
-     */
     suspend fun checkDuplicate(task: DownloadTask): Boolean = withContext(Dispatchers.IO) {
         when {
             task.destinationUri.scheme == "content" -> {
@@ -181,11 +164,8 @@ class AmplifyDownloadManager(private val context: Context) {
         }
     }
 
-    // ─── Internal helpers ──────────────────────────────────────────────────
-
     private fun resolveDestination(task: DownloadTask, strategy: DuplicateStrategy): Uri? {
         return when {
-            // SAF tree URI
             task.destinationUri.scheme == "content" &&
                 !task.destinationUri.toString().contains(MediaStore.AUTHORITY) -> {
                 val parent = DocumentFile.fromTreeUri(context, task.destinationUri)
@@ -194,14 +174,12 @@ class AmplifyDownloadManager(private val context: Context) {
                 val existing = parent.findFile(task.fileName)
                 when {
                     existing == null -> {
-                        // Create new file
                         val mime = MimeTypeMap.getSingleton()
                             .getMimeTypeFromExtension(task.fileExtension) ?: task.contentType
                         val newFile = parent.createFile(mime, task.fileName)
                         newFile?.uri
                     }
                     strategy == DuplicateStrategy.REPLACE -> {
-                        // Delete existing and recreate
                         existing.delete()
                         val mime = MimeTypeMap.getSingleton()
                             .getMimeTypeFromExtension(task.fileExtension) ?: task.contentType
@@ -213,14 +191,12 @@ class AmplifyDownloadManager(private val context: Context) {
                             .getMimeTypeFromExtension(task.fileExtension) ?: task.contentType
                         parent.createFile(mime, newName)?.uri
                     }
-                    else -> null // CANCEL
+                    else -> null
                 }
             }
-            // MediaStore
             task.destinationUri.scheme == "content" -> {
-                task.destinationUri // Already resolved by MediaStore insert
+                task.destinationUri
             }
-            // Internal file
             else -> {
                 val file = File(task.destinationUri.path!!, task.fileName)
                 if (file.exists() && strategy == DuplicateStrategy.KEEP_BOTH) {
@@ -233,11 +209,11 @@ class AmplifyDownloadManager(private val context: Context) {
         }
     }
 
-    private fun writeToDocumentFile(uri: Uri, inputStream: java.io.InputStream, totalBytes: Long) {
+    private fun writeToDocumentFile(uri: Uri, inputStream: java.io.InputStream, totalBytes: Long): Long {
+        var totalRead = 0L
         context.contentResolver.openOutputStream(uri, "w")?.use { output ->
             val buffer = ByteArray(8192)
             var bytesRead: Int
-            var totalRead = 0L
 
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                 if (isCancelled) break
@@ -253,14 +229,15 @@ class AmplifyDownloadManager(private val context: Context) {
                     totalBytes = totalBytes
                 )
             }
-        } ?: throw IOException("Failed to open output stream")
+        } ?: throw IOException("Failed to open output stream for DocumentFile")
+        return totalRead
     }
 
-    private fun writeToMediaStore(uri: Uri, inputStream: java.io.InputStream, totalBytes: Long) {
+    private fun writeToMediaStore(uri: Uri, inputStream: java.io.InputStream, totalBytes: Long): Long {
+        var totalRead = 0L
         context.contentResolver.openOutputStream(uri, "w")?.use { output ->
             val buffer = ByteArray(8192)
             var bytesRead: Int
-            var totalRead = 0L
 
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                 if (isCancelled) break
@@ -276,14 +253,15 @@ class AmplifyDownloadManager(private val context: Context) {
                     totalBytes = totalBytes
                 )
             }
-        } ?: throw IOException("Failed to open output stream")
+        } ?: throw IOException("Failed to open output stream for MediaStore")
+        return totalRead
     }
 
-    private fun writeToFile(file: File, inputStream: java.io.InputStream, totalBytes: Long) {
+    private fun writeToFile(file: File, inputStream: java.io.InputStream, totalBytes: Long): Long {
+        var totalRead = 0L
         file.outputStream().use { output ->
             val buffer = ByteArray(8192)
             var bytesRead: Int
-            var totalRead = 0L
 
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                 if (isCancelled) break
@@ -300,6 +278,7 @@ class AmplifyDownloadManager(private val context: Context) {
                 )
             }
         }
+        return totalRead
     }
 
     private fun deletePartial(uri: Uri) {
@@ -343,10 +322,6 @@ class AmplifyDownloadManager(private val context: Context) {
     companion object {
         private const val TAG = "AmplifyDownloadManager"
 
-        /**
-         * Create a MediaStore entry for public Music folder.
-         * Returns the content URI to write to.
-         */
         fun createMediaStoreEntry(
             context: Context,
             fileName: String,
@@ -365,8 +340,6 @@ class AmplifyDownloadManager(private val context: Context) {
                 put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
                 put(MediaStore.Audio.Media.TITLE, title)
                 put(MediaStore.Audio.Media.ARTIST, artist)
-                // A unique album keeps each downloaded track's embedded cover art
-                // from being replaced by the artwork of an earlier download.
                 put(MediaStore.Audio.Media.ALBUM, title)
                 put(MediaStore.Audio.Media.IS_MUSIC, 1)
                 put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
@@ -379,9 +352,6 @@ class AmplifyDownloadManager(private val context: Context) {
             return resolver.insert(collection, contentValues)
         }
 
-        /**
-         * Mark a MediaStore entry as complete (Android 10+).
-         */
         fun finalizeMediaStoreEntry(context: Context, uri: Uri) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
@@ -392,4 +362,3 @@ class AmplifyDownloadManager(private val context: Context) {
         }
     }
 }
-

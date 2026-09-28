@@ -93,6 +93,11 @@ class DownloaderActivity : ComponentActivity() {
             intent.getParcelableExtra(EXTRA_DOWNLOADABLE_TRACK)
         }
         track?.let { viewModel.setTrack(it) }
+        val initialUrl = intent.getStringExtra(EXTRA_INITIAL_URL)
+        if (!initialUrl.isNullOrBlank()) {
+            viewModel.setYtUrl(initialUrl)
+            viewModel.resolveYouTubeUrl()
+        }
 
         setContent {
             AmplifyTheme {
@@ -112,6 +117,7 @@ class DownloaderActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_DOWNLOADABLE_TRACK = "extra_downloadable_track"
+        const val EXTRA_INITIAL_URL = "extra_initial_url"
     }
 }
 

@@ -10,10 +10,15 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 object NetworkClients {
-    private const val TAG = "NetworkClients"
+    private const val TAG = "AmplifyNetwork"
 
     private val logging by lazy {
-        HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
+        HttpLoggingInterceptor { message ->
+            if (!message.contains("Authorization:", ignoreCase = true) &&
+                !message.contains("Cookie:", ignoreCase = true)) {
+                Log.d(TAG, message)
+            }
+        }.apply { level = HttpLoggingInterceptor.Level.BASIC }
     }
 
     private class StandardHeadersInterceptor : Interceptor {
@@ -35,7 +40,7 @@ object NetworkClients {
         }
     }
 
-    private class RetryInterceptor(
+    class RetryInterceptor(
         private val maxRetries: Int = 3,
         private val initialBackoffMs: Long = 500
     ) : Interceptor {
@@ -44,25 +49,42 @@ object NetworkClients {
             var lastException: Exception? = null
             while (true) {
                 try {
-                    val response = chain.proceed(chain.request())
-                    // Retry only transient server errors or rate limiting
-                    val isTransientError = !response.isSuccessful && (response.code in listOf(429, 502, 503, 504))
-                    if (isTransientError && attempt < maxRetries) {
-                        Log.w(TAG, "Transient HTTP ${response.code} received. Retrying attempt ${attempt + 1}/$maxRetries...")
+                    val request = chain.request()
+                    val response = chain.proceed(request)
+                    
+                    // Do not retry permanent client authorization/access errors (401, 403, 404)
+                    if (response.code in listOf(401, 403, 404)) {
+                        Log.w(TAG, "Request failed with non-retryable HTTP ${response.code}")
+                        return response
+                    }
+
+                    // Retry transient server errors (502, 503, 504) or rate limiting (429)
+                    val isTransientError = response.code in listOf(429, 502, 503, 504)
+                    if (!response.isSuccessful && isTransientError && attempt < maxRetries) {
                         response.close()
-                        Thread.sleep(initialBackoffMs * (1L shl attempt))
+                        val backoff = initialBackoffMs * (1L shl attempt)
+                        Log.w(TAG, "Transient HTTP ${response.code}, retrying attempt ${attempt + 1}/$maxRetries in ${backoff}ms")
+                        try {
+                            Thread.sleep(backoff)
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            throw IOException("Retry interrupted")
+                        }
                         attempt++
                         continue
                     }
                     return response
                 } catch (e: Exception) {
                     lastException = e
-                    if (attempt >= maxRetries) {
-                        Log.e(TAG, "Network request failed after $maxRetries retries: ${e.message}")
-                        break
+                    if (attempt >= maxRetries) break
+                    val backoff = initialBackoffMs * (1L shl attempt)
+                    Log.w(TAG, "Network exception on attempt ${attempt + 1}/$maxRetries: ${e.message}, retrying in ${backoff}ms")
+                    try {
+                        Thread.sleep(backoff)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw IOException("Retry interrupted")
                     }
-                    Log.w(TAG, "Network exception on attempt ${attempt + 1}/$maxRetries: ${e.javaClass.simpleName}. Backing off...")
-                    Thread.sleep(initialBackoffMs * (1L shl attempt))
                     attempt++
                 }
             }
