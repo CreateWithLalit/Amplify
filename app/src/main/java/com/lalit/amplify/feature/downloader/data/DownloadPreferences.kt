@@ -23,6 +23,12 @@ class DownloadPreferences(private val context: Context) {
         private val DOWNLOAD_FOLDER_NAME = stringPreferencesKey("download_folder_name")
         private val DEFAULT_QUALITY = stringPreferencesKey("default_quality")
         private val AUTO_IMPORT = booleanPreferencesKey("auto_import_downloads")
+        private val BACKEND_URL = stringPreferencesKey("backend_resolver_url")
+        const val DEFAULT_BACKEND_URL = "https://amplify-production-0b58.up.railway.app"
+    }
+
+    val backendUrl: Flow<String> = context.downloadDataStore.data.map { prefs ->
+        prefs[BACKEND_URL]?.takeIf { it.isNotBlank() } ?: DEFAULT_BACKEND_URL
     }
 
     val downloadFolderUri: Flow<Uri?> = context.downloadDataStore.data.map { prefs ->
@@ -66,6 +72,12 @@ class DownloadPreferences(private val context: Context) {
     suspend fun setAutoImport(enabled: Boolean) {
         context.downloadDataStore.edit { prefs ->
             prefs[AUTO_IMPORT] = enabled
+        }
+    }
+
+    suspend fun setBackendUrl(url: String) {
+        context.downloadDataStore.edit { prefs ->
+            prefs[BACKEND_URL] = url.trim().removeSuffix("/")
         }
     }
 

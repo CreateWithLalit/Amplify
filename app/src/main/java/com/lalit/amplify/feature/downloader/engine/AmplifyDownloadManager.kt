@@ -63,24 +63,31 @@ class AmplifyDownloadManager(private val context: Context) {
         currentTask = task
         _downloadState.value = DownloadState.Preparing
 
+        var resolvedDestination: Uri? = null
+
         try {
+            android.util.Log.d(TAG, "Starting download: '${task.trackTitle}' by '${task.trackArtist}' [format=${task.fileExtension}]")
+
             // Resolve destination and handle duplicates
             val destinationUri = resolveDestination(task, duplicateStrategy)
-                ?: return@withContext Result.failure(IOException("Could not resolve destination"))
+                ?: return@withContext Result.failure(IOException("Could not resolve download destination folder"))
+            resolvedDestination = destinationUri
 
             if (isCancelled) {
                 _downloadState.value = DownloadState.Cancelled
+                deletePartial(destinationUri)
                 return@withContext Result.failure(IOException("Download cancelled"))
             }
 
             // Execute download
             val requestBuilder = Request.Builder()
                 .url(task.streamUrl)
-                .header("User-Agent", "Amplify Android")
+                .header("User-Agent", "Amplify-MusicPlayer/1.0 (Android; Mobile)")
+                .header("Accept", "audio/*, */*")
 
             if (task.requestBody != null) {
                 requestBuilder.post(
-                    task.requestBody.toRequestBody("application/json".toMediaType())
+                    task.requestBody.toRequestBody("application/json; charset=utf-8".toMediaType())
                 )
             } else {
                 requestBuilder.get()
@@ -90,10 +97,26 @@ class AmplifyDownloadManager(private val context: Context) {
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw IOException("HTTP ${response.code}")
+                    val code = response.code
+                    val errorDetail = when (code) {
+                        401 -> "Unauthorized (401): Stream access denied by provider. Session or credentials required."
+                        403 -> "Forbidden (403): Content is restricted or unavailable from this provider."
+                        404 -> "Not Found (404): Audio stream or endpoint does not exist."
+                        429 -> "Rate Limited (429): Stream server rate limit reached. Please retry in a few moments."
+                        in 500..599 -> "Server Error ($code): Audio streaming backend is temporarily unavailable."
+                        else -> "HTTP $code"
+                    }
+                    android.util.Log.w(TAG, "Stream response failed: $errorDetail")
+                    throw IOException(errorDetail)
                 }
 
-                val body = response.body ?: throw IOException("Empty response body")
+                val contentType = response.header("Content-Type").orEmpty()
+                if (contentType.contains("text/html", ignoreCase = true)) {
+                    android.util.Log.e(TAG, "Expected audio stream but server returned HTML ($contentType)")
+                    throw IOException("Server returned an HTML page instead of an audio stream ($contentType)")
+                }
+
+                val body = response.body ?: throw IOException("Empty response body from stream server")
                 val totalBytes = body.contentLength()
 
                 // Write to destination
@@ -121,10 +144,13 @@ class AmplifyDownloadManager(private val context: Context) {
                     return@withContext Result.failure(IOException("Download cancelled"))
                 }
 
+                android.util.Log.d(TAG, "Download finished successfully: $destinationUri")
                 _downloadState.value = DownloadState.Success(destinationUri, task.fileName)
                 Result.success(destinationUri)
             }
         } catch (e: Exception) {
+            android.util.Log.e(TAG, "Download failed: ${e.message}", e)
+            resolvedDestination?.let { deletePartial(it) }
             _downloadState.value = DownloadState.Error(e.message ?: "Download failed")
             Result.failure(e)
         }
@@ -315,6 +341,8 @@ class AmplifyDownloadManager(private val context: Context) {
     }
 
     companion object {
+        private const val TAG = "AmplifyDownloadManager"
+
         /**
          * Create a MediaStore entry for public Music folder.
          * Returns the content URI to write to.

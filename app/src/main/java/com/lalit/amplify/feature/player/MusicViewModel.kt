@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import com.lalit.amplify.core.data.AmplifyDataStore
@@ -74,6 +75,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val jamendoFavoriteSongs = jamendoRepository.getFavoriteSongs()
     val jamendoRecentlyPlayed = jamendoRepository.getRecentlyPlayedSongs()
     private var activeQueue: List<Song> = emptyList()
+    private val _queue = MutableStateFlow<List<Song>>(emptyList())
+    val queue: StateFlow<List<Song>> = _queue.asStateFlow()
+    private val _externalPlaybackEvent = kotlinx.coroutines.flow.MutableSharedFlow<Song>(extraBufferCapacity = 1)
+    val externalPlaybackEvent = _externalPlaybackEvent.asSharedFlow()
 
     // Processed songs list based on search and sort
     val filteredSongs = combine(rawSongs, _searchQuery, _sortOrder) { songs, query, sort ->
@@ -288,9 +293,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val index = songList.indexOf(song)
         if (index == -1) return
 
-        ensurePlaybackService()
-        
         activeQueue = songList
+        _queue.value = songList
         viewModelScope.launch {
             if (song.source == com.lalit.amplify.core.model.SongSource.JAMENDO) {
                 jamendoRepository.addRecentlyPlayed(song)
@@ -299,9 +303,27 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        val mediaItems = songList.map { buildMediaItem(it) }
+        if (song.playbackCapability == com.lalit.amplify.core.model.PlaybackCapability.EXTERNAL_LINK) {
+            // Track requires official external platform playback
+            controller?.pause()
+            _playerState.value = _playerState.value.copy(
+                currentSong = song,
+                isPlaying = false,
+                currentPosition = 0L,
+                duration = song.duration
+            )
+            _externalPlaybackEvent.tryEmit(song)
+            return
+        }
+
+        ensurePlaybackService()
+
+        val directStreamList = songList.filter { it.playbackCapability == com.lalit.amplify.core.model.PlaybackCapability.DIRECT_STREAM }
+        val streamIndex = directStreamList.indexOf(song).let { if (it == -1) 0 else it }
+
+        val mediaItems = directStreamList.map { buildMediaItem(it) }
         controller?.let {
-            it.setMediaItems(mediaItems, index, 0L)
+            it.setMediaItems(mediaItems, streamIndex, 0L)
             it.prepare()
             it.play()
         }

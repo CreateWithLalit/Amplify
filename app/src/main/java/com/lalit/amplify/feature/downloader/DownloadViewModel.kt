@@ -87,6 +87,17 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
                 _autoImport.value = enabled
             }
         }
+        viewModelScope.launch {
+            preferences.backendUrl.collect { url ->
+                ytResolver.setBackendUrl(url)
+            }
+        }
+    }
+
+    fun setBackendUrl(url: String) {
+        viewModelScope.launch {
+            preferences.setBackendUrl(url)
+        }
     }
 
     fun setTrack(track: DownloadableTrack) {
@@ -94,7 +105,7 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setManualUrl(url: String) {
-        _manualUrl.value = url
+        _manualUrl.value = url.trim()
     }
 
     fun setYtUrl(url: String) {
@@ -103,8 +114,11 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun resolveYouTubeUrl() {
-        val url = _ytUrl.value
-        if (url.isBlank()) return
+        val url = _ytUrl.value.trim()
+        if (url.isBlank()) {
+            _resolveError.value = "Please enter a valid link"
+            return
+        }
 
         viewModelScope.launch {
             _isResolving.value = true
@@ -116,7 +130,8 @@ class DownloadViewModel(application: Application) : AndroidViewModel(application
                     _isResolving.value = false
                 },
                 onFailure = { error ->
-                    _resolveError.value = error.message ?: "Failed to resolve link"
+                    val message = error.message ?: "Failed to resolve link"
+                    _resolveError.value = message
                     _isResolving.value = false
                 }
             )

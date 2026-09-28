@@ -17,6 +17,9 @@ class MusicSourceManager(private val context: Context) : MusicSourceProvider {
     init {
         // Register local source by default
         registerSource(LocalMusicSource(context))
+
+        // Register Bollywood & Global discovery catalog
+        registerSource(BollywoodDiscoveryMusicSource())
         
         // Register Jamendo source (streaming)
         registerSource(JamendoMusicSource { JamendoRepository.getInstance(context).getQualityPreferenceSync() })

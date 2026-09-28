@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lalit.amplify.core.data.AmplifyDataStore
 import com.lalit.amplify.core.data.jamendo.JamendoRepository
+import com.lalit.amplify.core.music.BollywoodDiscoveryMusicSource
 import com.lalit.amplify.core.music.JamendoMusicSource
 import com.lalit.amplify.core.model.Song
 import kotlinx.coroutines.Job
@@ -16,7 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class SearchTab { ALL, LOCAL, JAMENDO }
+enum class SearchTab { ALL, BOLLYWOOD_GLOBAL, JAMENDO, LOCAL }
 
 sealed class DownloadLinkState {
     object Idle : DownloadLinkState()
@@ -29,6 +30,7 @@ data class SearchUiState(
     val query: String = "",
     val selectedTab: SearchTab = SearchTab.ALL,
     val selectedGenre: String? = null,
+    val bollywoodResults: List<Song> = emptyList(),
     val jamendoResults: List<Song> = emptyList(),
     val jamendoLoading: Boolean = false,
     val jamendoError: String? = null,
@@ -40,6 +42,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     private val dataStore = AmplifyDataStore(application)
     private val jamendoRepository = JamendoRepository.getInstance(application)
+    private val bollywoodSource = BollywoodDiscoveryMusicSource()
     private val pageSize = 20
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -51,7 +54,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         initialValue = emptyList()
     )
 
-    val genres = JamendoMusicSource.JAMENDO_GENRES
+    val genres = BollywoodDiscoveryMusicSource.GENRES + JamendoMusicSource.JAMENDO_GENRES
 
     private var searchJob: Job? = null
     private var paginationJob: Job? = null
@@ -62,6 +65,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         searchJob?.cancel()
         if (query.isBlank()) {
             _uiState.value = _uiState.value.copy(
+                bollywoodResults = emptyList(),
                 jamendoResults = emptyList(),
                 jamendoLoading = false,
                 jamendoError = null,
@@ -73,7 +77,9 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         searchJob = viewModelScope.launch {
-            delay(500)
+            delay(400)
+            val bResults = bollywoodSource.search(query.trim(), 20, 0)
+            _uiState.value = _uiState.value.copy(bollywoodResults = bResults)
             performJamendoSearch(query.trim(), offset = 0, append = false)
             dataStore.addJamendoSearchQuery(query)
         }
@@ -90,7 +96,11 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             searchGenre(genre)
         } else if (query.isNotBlank()) {
             searchJob?.cancel()
-            searchJob = viewModelScope.launch { performJamendoSearch(query, offset = 0, append = false) }
+            searchJob = viewModelScope.launch {
+                val bResults = bollywoodSource.search(query, 20, 0)
+                _uiState.value = _uiState.value.copy(bollywoodResults = bResults)
+                performJamendoSearch(query, offset = 0, append = false)
+            }
         }
     }
 
@@ -102,15 +112,21 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         }
         if (query.isBlank()) return
         searchJob?.cancel()
-        searchJob = viewModelScope.launch { performJamendoSearch(query, offset = 0, append = false) }
+        searchJob = viewModelScope.launch {
+            val bResults = bollywoodSource.search(query, 20, 0)
+            _uiState.value = _uiState.value.copy(bollywoodResults = bResults)
+            performJamendoSearch(query, offset = 0, append = false)
+        }
     }
 
     fun searchGenre(genre: String) {
         _uiState.value = _uiState.value.copy(selectedGenre = genre, query = "")
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
+            val bResults = bollywoodSource.getByGenre(genre, 20, 0)
             val jamendoSource = JamendoMusicSource { jamendoRepository.getQualityPreferenceSync() }
             _uiState.value = _uiState.value.copy(
+                bollywoodResults = bResults,
                 jamendoLoading = true,
                 jamendoError = null,
                 jamendoResults = emptyList(),
@@ -130,7 +146,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 .onFailure { error ->
                     _uiState.value = _uiState.value.copy(
                         jamendoLoading = false,
-                        jamendoError = error.message ?: "Failed to load Jamendo genre"
+                        jamendoError = if (bResults.isNotEmpty()) null else (error.message ?: "Failed to load genre")
                     )
                 }
         }
@@ -138,7 +154,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
     fun loadMoreJamendo() {
         val state = _uiState.value
-        if (state.selectedTab == SearchTab.LOCAL) return
+        if (state.selectedTab == SearchTab.LOCAL || state.selectedTab == SearchTab.BOLLYWOOD_GLOBAL) return
         if (!state.jamendoHasMore || state.jamendoLoading) return
         val query = state.query.trim()
         val genre = state.selectedGenre
@@ -210,8 +226,9 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         }.onFailure { error ->
             _uiState.value = _uiState.value.copy(
                 jamendoLoading = false,
-                jamendoError = error.message ?: "Failed to search Jamendo"
+                jamendoError = if (_uiState.value.bollywoodResults.isNotEmpty()) null else (error.message ?: "Failed to search Jamendo")
             )
         }
     }
 }
+

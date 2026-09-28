@@ -41,7 +41,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -89,11 +91,11 @@ fun SearchScreen(
 
     val query = uiState.query
     val selectedTab = uiState.selectedTab
+    val bollywoodResults = uiState.bollywoodResults
     val jamendoResults = uiState.jamendoResults
     val localResults = localSongs
-    val combinedResults = remember(localResults, jamendoResults) {
-        (localResults + jamendoResults).distinctBy { "${it.source}-${it.id}" }
-    }
+    var selectedDetailsSong by remember { mutableStateOf<Song?>(null) }
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
     Box(
         modifier = Modifier
@@ -106,17 +108,11 @@ fun SearchScreen(
                 modifier = Modifier.padding(start = 20.dp, top = 28.dp, bottom = 16.dp)
             ) {
                 Text(
-                    text = "Search",
+                    text = "Search & Discover",
                     color = Color.White,
                     fontSize = 26.sp,
                     fontWeight = FontWeight.ExtraBold,
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(onClick = {
-                    context.startActivity(Intent(context, DownloaderActivity::class.java))
-                }) {
-                    Icon(Icons.Default.Download, contentDescription = "Downloader", tint = Color.White)
-                }
             }
 
             OutlinedTextField(
@@ -130,7 +126,7 @@ fun SearchScreen(
                     .padding(horizontal = 20.dp),
                 placeholder = {
                     Text(
-                        "Songs, artists, albums...",
+                        "Search Bollywood, artists, global hits...",
                         color = Color(0xFF555555)
                     )
                 },
@@ -165,22 +161,33 @@ fun SearchScreen(
                 })
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            Row(
+            LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SearchTabChip(label = "All", selected = selectedTab == SearchTab.ALL) {
-                    searchViewModel.onTabSelected(SearchTab.ALL)
+                item {
+                    SearchTabChip(label = "All", selected = selectedTab == SearchTab.ALL) {
+                        searchViewModel.onTabSelected(SearchTab.ALL)
+                    }
                 }
-                SearchTabChip(label = "Local", selected = selectedTab == SearchTab.LOCAL) {
-                    searchViewModel.onTabSelected(SearchTab.LOCAL)
+                item {
+                    SearchTabChip(label = "Bollywood & Global", selected = selectedTab == SearchTab.BOLLYWOOD_GLOBAL) {
+                        searchViewModel.onTabSelected(SearchTab.BOLLYWOOD_GLOBAL)
+                    }
                 }
-                SearchTabChip(label = "Jamendo", selected = selectedTab == SearchTab.JAMENDO) {
-                    searchViewModel.onTabSelected(SearchTab.JAMENDO)
+                item {
+                    SearchTabChip(label = "Jamendo", selected = selectedTab == SearchTab.JAMENDO) {
+                        searchViewModel.onTabSelected(SearchTab.JAMENDO)
+                    }
+                }
+                item {
+                    SearchTabChip(label = "Local", selected = selectedTab == SearchTab.LOCAL) {
+                        searchViewModel.onTabSelected(SearchTab.LOCAL)
+                    }
                 }
             }
 
@@ -204,7 +211,6 @@ fun SearchScreen(
                     GenreSection(
                         genres = searchViewModel.genres,
                         onGenreClick = {
-                            searchViewModel.onTabSelected(SearchTab.JAMENDO)
                             searchViewModel.searchGenre(it)
                             musicViewModel.updateSearchQuery("")
                         }
@@ -218,6 +224,20 @@ fun SearchScreen(
                     .fillMaxWidth()
             ) {
                 when (selectedTab) {
+                    SearchTab.BOLLYWOOD_GLOBAL -> SongResultsList(
+                        title = "Bollywood & Global Discovery",
+                        songs = bollywoodResults,
+                        listState = listState,
+                        playerState = playerState,
+                        onSongClick = { song ->
+                            if (song.playbackCapability == com.lalit.amplify.core.model.PlaybackCapability.EXTERNAL_LINK) {
+                                selectedDetailsSong = song
+                            } else {
+                                musicViewModel.playSong(song, bollywoodResults)
+                            }
+                        }
+                    )
+
                     SearchTab.LOCAL -> SongResultsList(
                         title = "Local Library",
                         songs = localResults,
@@ -254,7 +274,7 @@ fun SearchScreen(
                     }
 
                     SearchTab.ALL -> {
-                        if (query.isBlank()) {
+                        if (query.isBlank() && uiState.selectedGenre == null) {
                             IdleSearchHint()
                         } else {
                             LazyColumn(
@@ -263,9 +283,22 @@ fun SearchScreen(
                                     bottom = if (playerState.currentSong != null) 90.dp else 16.dp
                                 )
                             ) {
+                                if (bollywoodResults.isNotEmpty()) {
+                                    item { SectionHeader("Bollywood & Global Discovery") }
+                                    items(bollywoodResults, key = { "bollywood-${it.id}" }) { song ->
+                                        SongRow(song = song, isPlaying = song.id == playerState.currentSong?.id) {
+                                            if (song.playbackCapability == com.lalit.amplify.core.model.PlaybackCapability.EXTERNAL_LINK) {
+                                                selectedDetailsSong = song
+                                            } else {
+                                                musicViewModel.playSong(song, bollywoodResults)
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if (localResults.isNotEmpty()) {
                                     item {
-                                        SectionHeader("Local")
+                                        SectionHeader("Local Files")
                                     }
                                     items(localResults, key = { "local-${it.id}" }) { song ->
                                         SongRow(song = song, isPlaying = song.id == playerState.currentSong?.id) {
@@ -275,7 +308,7 @@ fun SearchScreen(
                                 }
 
                                 if (jamendoResults.isNotEmpty()) {
-                                    item { SectionHeader("Jamendo") }
+                                    item { SectionHeader("Jamendo Stream") }
                                     items(jamendoResults, key = { "jamendo-${it.id}" }) { song ->
                                         SongRow(song = song, isPlaying = song.id == playerState.currentSong?.id) {
                                             musicViewModel.playSong(song, jamendoResults)
@@ -295,7 +328,7 @@ fun SearchScreen(
                                     }
                                 }
 
-                                if (localResults.isEmpty() && jamendoResults.isEmpty()) {
+                                if (bollywoodResults.isEmpty() && localResults.isEmpty() && jamendoResults.isEmpty() && !uiState.jamendoLoading) {
                                     item { EmptySearchResult(query = query) }
                                 }
                             }
@@ -303,6 +336,57 @@ fun SearchScreen(
                     }
                 }
             }
+        }
+
+        // Track Details Dialog
+        selectedDetailsSong?.let { song ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { selectedDetailsSong = null },
+                containerColor = Color(0xFF1E1E1E),
+                title = {
+                    Text(song.title, color = Color.White, fontWeight = FontWeight.Bold)
+                },
+                text = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        AlbumArtImage(uri = song.albumArtUri, size = 160.dp, cornerRadius = 16.dp)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(song.artist, color = Color(0xFFB3B3B3), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                        if (song.album.isNotBlank() && song.album != "Unknown Album") {
+                            Text(song.album, color = Color(0xFF777777), fontSize = 14.sp)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        val badge = when (song.source) {
+                            com.lalit.amplify.core.model.SongSource.BOLLYWOOD_CATALOG -> "Bollywood Discovery Catalog"
+                            com.lalit.amplify.core.model.SongSource.INTERNATIONAL_CATALOG -> "Global Discovery Catalog"
+                            else -> song.source.name
+                        }
+                        Text("Source: $badge", color = Color(0xFF1DB954), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        song.licenseInfo?.let {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(it, color = Color(0xFF888888), fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                        }
+                    }
+                },
+                confirmButton = {
+                    val targetUrl = song.sourceUrl ?: song.artistUrl ?: (if (song.uri.scheme?.startsWith("http") == true) song.uri.toString() else null)
+                    if (targetUrl != null) {
+                        Button(
+                            onClick = {
+                                uriHandler.openUri(targetUrl)
+                                selectedDetailsSong = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954))
+                        ) {
+                            Text("Open Official Stream")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { selectedDetailsSong = null }) {
+                        Text("Close", color = Color(0xFF888888))
+                    }
+                }
+            )
         }
 
         // Mini Player
@@ -451,7 +535,15 @@ private fun SongRow(song: Song, isPlaying: Boolean, onClick: () -> Unit) {
             Text(song.title, color = if (isPlaying) Color(0xFF1DB954) else Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(song.artist, color = Color(0xFF9A9A9A), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(song.source.name.lowercase().replaceFirstChar { it.uppercaseChar() }, color = Color(0xFF1DB954), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                val (sourceLabel, sourceColor) = when (song.source) {
+                    com.lalit.amplify.core.model.SongSource.BOLLYWOOD_CATALOG -> "Bollywood" to Color(0xFFFFB300)
+                    com.lalit.amplify.core.model.SongSource.INTERNATIONAL_CATALOG -> "Global" to Color(0xFF29B6F6)
+                    com.lalit.amplify.core.model.SongSource.JAMENDO -> "Jamendo" to Color(0xFF1DB954)
+                    com.lalit.amplify.core.model.SongSource.LOCAL -> "Local" to Color(0xFFAAAAAA)
+                    com.lalit.amplify.core.model.SongSource.DOWNLOADED -> "Downloaded" to Color(0xFF4DD0E1)
+                    else -> song.source.name to Color(0xFF1DB954)
+                }
+                Text(sourceLabel, color = sourceColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(if (song.duration > 0) formatDuration(song.duration) else "--:--", color = Color(0xFF666666), fontSize = 11.sp)
             }

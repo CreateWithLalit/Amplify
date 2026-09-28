@@ -116,75 +116,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                when {
-                    !hasMediaPermission -> {
-                        // Permission denied screen
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.amplify_logo),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(100.dp)
-                                    .padding(bottom = 32.dp)
-                            )
-                            Text(
-                                text = "Music permission required",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        }
-                    }
-
-                    !hasNotificationPermission && notificationPermission != null -> {
-                        // Notification permission prompt (preserved from original)
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.amplify_logo),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .padding(bottom = 24.dp)
-                            )
-                            Text(
-                                text = "Notification permission is off",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = "Enable notifications to show playback controls on the lock screen.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
-                            )
-                            Button(onClick = {
-                                val intent = Intent(
-                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    Uri.fromParts("package", context.packageName, null)
-                                )
-                                context.startActivity(intent)
-                            }) {
-                                Text("Open app settings")
-                            }
-                        }
-                    }
-
-                    else -> {
-                        // All permissions granted - launch full app with navigation
-                        AmplifyNavHost(
-                            musicViewModel = viewModel,
-                            downloadViewModel = downloadViewModel
-                        )
-                    }
-                }
+                // Launch full app with navigation
+                AmplifyNavHost(
+                    musicViewModel = viewModel,
+                    downloadViewModel = downloadViewModel
+                )
             }
         }
     }

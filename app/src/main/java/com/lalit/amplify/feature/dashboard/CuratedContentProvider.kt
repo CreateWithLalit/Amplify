@@ -40,8 +40,8 @@ class CuratedContentProvider(private val musicSourceManager: MusicSourceManager)
      */
     suspend fun loadCuratedContent(limit: Int = 50) {
         _curatedSections.value = listOf(
-            CuratedSection("Trending on Jamendo", "jamendo-trending", isLoading = true),
-            CuratedSection("Jamendo Picks", "jamendo-picks", isLoading = true)
+            CuratedSection("Trending Hits", "trending", isLoading = true),
+            CuratedSection("Recommended Picks", "picks", isLoading = true)
         )
         try {
             // Load trending from all sources
@@ -61,8 +61,8 @@ class CuratedContentProvider(private val musicSourceManager: MusicSourceManager)
                     val source = musicSourceManager.getSource(sourceId)
                     sections.add(
                         CuratedSection(
-                            title = "Trending on ${source?.displayName ?: sourceId}",
-                            sourceId = sourceId,
+                            title = "Trending · ${source?.displayName ?: sourceId}",
+                            sourceId = "${sourceId}-trending",
                             songs = songs.take(10)
                         )
                     )
@@ -76,7 +76,7 @@ class CuratedContentProvider(private val musicSourceManager: MusicSourceManager)
                     sections.add(
                         CuratedSection(
                             title = "${source?.displayName ?: sourceId} Picks",
-                            sourceId = sourceId,
+                            sourceId = "${sourceId}-picks",
                             songs = songs.take(10)
                         )
                     )
@@ -86,21 +86,21 @@ class CuratedContentProvider(private val musicSourceManager: MusicSourceManager)
             _curatedSections.value = sections.ifEmpty {
                 listOf(
                     CuratedSection(
-                        title = "Trending on Jamendo",
-                        sourceId = "jamendo-trending",
-                        errorMessage = "No Jamendo tracks are available right now."
+                        title = "Discover Music",
+                        sourceId = "discover",
+                        errorMessage = "Connect to network to explore more tracks."
                     )
                 )
             }
 
         } catch (e: Exception) {
             _curatedSections.value = listOf(
-                    CuratedSection(
-                        title = "Trending on Jamendo",
-                        sourceId = "jamendo-trending",
-                        errorMessage = e.message ?: "Unknown error"
-                    )
+                CuratedSection(
+                    title = "Discover Music",
+                    sourceId = "discover",
+                    errorMessage = e.message ?: "Could not load music sources."
                 )
+            )
         }
     }
 

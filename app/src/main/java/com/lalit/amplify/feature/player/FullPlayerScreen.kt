@@ -6,6 +6,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.RepeatOne
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
@@ -163,46 +165,84 @@ fun FullPlayerScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (song.album.isNotBlank() && song.album != "Unknown Album") {
+                        Text(
+                            text = song.album,
+                            color = Color(0xFF666666),
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
                 IconButton(onClick = onToggleFavorite) {
                     Icon(
                         imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Favorite",
-                        tint = Color(0xFF999999),
+                        tint = if (isFavorite) Color(0xFFE91E63) else Color(0xFF999999),
                         modifier = Modifier.size(24.dp)
                     )
                 }
             }
 
-            if (song.source == com.lalit.amplify.core.model.SongSource.JAMENDO) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color(0xFF1A2A1A))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Source Badge & Attribution
+            val (badgeText, badgeBg, badgeTextColor) = when (song.source) {
+                com.lalit.amplify.core.model.SongSource.BOLLYWOOD_CATALOG ->
+                    Triple("Bollywood Discovery", Color(0xFF332005), Color(0xFFFFB300))
+                com.lalit.amplify.core.model.SongSource.INTERNATIONAL_CATALOG ->
+                    Triple("Global Discovery", Color(0xFF0D2538), Color(0xFF29B6F6))
+                com.lalit.amplify.core.model.SongSource.JAMENDO ->
+                    Triple("Powered by Jamendo", Color(0xFF1A2A1A), Color(0xFF1DB954))
+                com.lalit.amplify.core.model.SongSource.LOCAL ->
+                    Triple("Device Library", Color(0xFF222222), Color(0xFFAAAAAA))
+                com.lalit.amplify.core.model.SongSource.DOWNLOADED ->
+                    Triple("Downloaded", Color(0xFF1B2B34), Color(0xFF4DD0E1))
+                else ->
+                    Triple("Amplify Catalog", Color(0xFF222222), Color.White)
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(badgeBg)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = badgeText,
+                    color = badgeTextColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            song.licenseInfo?.let { license ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = license,
+                    color = Color(0xFF888888),
+                    fontSize = 11.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            val targetUrl = song.sourceUrl ?: song.artistUrl ?: (if (song.uri.scheme?.startsWith("http") == true) song.uri.toString() else null)
+            if (targetUrl != null && song.playbackCapability == com.lalit.amplify.core.model.PlaybackCapability.EXTERNAL_LINK) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { uriHandler.openUri(targetUrl) },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2A2A2A),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    Text(
-                        text = "Powered by Jamendo",
-                        color = Color(0xFF1DB954),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Text("Listen on Official Platform", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                song.licenseInfo?.let { license ->
-                    Text(
-                        text = license,
-                        color = Color(0xFFB8B8B8),
-                        fontSize = 12.sp,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
+            } else if (song.source == com.lalit.amplify.core.model.SongSource.JAMENDO) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     song.sourceUrl?.let { url ->
                         TextButton(onClick = { uriHandler.openUri(url) }) {

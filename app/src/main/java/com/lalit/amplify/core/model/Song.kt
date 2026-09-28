@@ -8,7 +8,15 @@ enum class SongSource {
     DOWNLOADED,      // Downloaded/cached audio files
     JAMENDO,         // Jamendo streaming API
     AUDIUS,          // Audius streaming API
-    STREAMING        // Generic streaming (YouTube Music, etc., future)
+    STREAMING,       // Generic streaming
+    BOLLYWOOD_CATALOG, // Bollywood discovery catalog
+    INTERNATIONAL_CATALOG // International discovery catalog
+}
+
+enum class PlaybackCapability {
+    DIRECT_STREAM,   // Audio can be played directly in ExoPlayer
+    EXTERNAL_LINK,   // Licensed/external link; opens official provider URL
+    SDK_REQUIRED     // Requires provider SDK
 }
 
 data class Song(
@@ -26,7 +34,8 @@ data class Song(
     val artistUrl: String? = null,           // Artist page/profile URL
     val licenseInfo: String? = null,        // Attribution/license info for streaming
     val isExplicit: Boolean = false,        // Content rating
-    val genres: List<String> = emptyList()  // Genre tags from API
+    val genres: List<String> = emptyList(),  // Genre tags from API
+    val playbackCapability: PlaybackCapability = PlaybackCapability.DIRECT_STREAM
 ) {
     fun toMediaMetadata(): MediaMetadata {
         return MediaMetadata.Builder()

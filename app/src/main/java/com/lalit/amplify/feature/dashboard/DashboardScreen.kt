@@ -135,7 +135,7 @@ fun DashboardScreen(
             }
 
             // Curated Streaming Content (NEW - Multiple Sources)
-            items(curatedSections, key = { it.sourceId }) { section ->
+            items(curatedSections, key = { "${it.sourceId}-${it.title}" }) { section ->
                 SectionTitle(section.title)
                 when {
                     section.isLoading -> Text(
@@ -374,7 +374,7 @@ private fun HorizontalSongRow(
         contentPadding = PaddingValues(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        items(songs, key = { it.id }) { song ->
+        items(songs, key = { "${it.source}-${it.id}" }) { song ->
             SongCard(
                 song = song,
                 isPlaying = song.id == playingSongId,

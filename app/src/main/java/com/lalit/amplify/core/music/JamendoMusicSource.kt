@@ -99,6 +99,7 @@ class JamendoMusicSource(
     }
 
     override suspend fun isAvailable(): Boolean {
+        if (clientId.isBlank() || clientId == "your_jamendo_client_id") return false
         return try {
             // Try fetching one trending track to verify API is available
             apiService.getTrendingTracks(
@@ -113,8 +114,8 @@ class JamendoMusicSource(
     private suspend fun requestTracks(
         request: suspend () -> com.lalit.amplify.core.network.jamendo.JamendoTracksResponse
     ): List<Song> {
-        check(clientId.isNotBlank()) {
-            "Jamendo is not configured. Add JAMENDO_CLIENT_ID to local.properties."
+        check(clientId.isNotBlank() && clientId != "your_jamendo_client_id") {
+            "Jamendo is not configured. Add JAMENDO_CLIENT_ID in the Secrets panel."
         }
         var lastError: Exception? = null
         repeat(3) { attempt ->
