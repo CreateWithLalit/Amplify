@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -36,9 +37,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +53,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,10 +62,13 @@ import kotlinx.coroutines.launch
 import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.lalit.amplify.core.model.Song
+import com.lalit.amplify.core.ui.AlbumArtImage
 import com.lalit.amplify.feature.downloader.DownloaderActivity
 import com.lalit.amplify.feature.player.MiniPlayer
 import com.lalit.amplify.feature.player.MusicViewModel
 import com.lalit.amplify.feature.player.formatDuration
+import com.lalit.amplify.feature.search.SearchTab
 
 @OptIn(ExperimentalMaterial3Api::class)
 @UnstableApi
@@ -71,16 +78,22 @@ fun SearchScreen(
     onOpenFullPlayer: () -> Unit,
     searchViewModel: SearchViewModel = viewModel()
 ) {
-    val query by searchViewModel.query.collectAsState()
     val uiState by searchViewModel.uiState.collectAsState()
-    val selectedResult by searchViewModel.selectedResult.collectAsState()
-    val downloadLinkState by searchViewModel.downloadLinkState.collectAsState()
+    val recentSearches by searchViewModel.recentSearches.collectAsState()
     val playerState by musicViewModel.playerState.collectAsState()
     val localSongs by musicViewModel.songs.collectAsState()
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState()
+    val listState = rememberLazyListState()
+
+    val query = uiState.query
+    val selectedTab = uiState.selectedTab
+    val jamendoResults = uiState.jamendoResults
+    val localResults = localSongs
+    val combinedResults = remember(localResults, jamendoResults) {
+        (localResults + jamendoResults).distinctBy { "${it.source}-${it.id}" }
+    }
 
     Box(
         modifier = Modifier
@@ -88,8 +101,6 @@ fun SearchScreen(
             .background(Color(0xFF0A0A0A))
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-
-            // Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 20.dp, top = 28.dp, bottom = 16.dp)
@@ -108,10 +119,12 @@ fun SearchScreen(
                 }
             }
 
-            // Search Bar
             OutlinedTextField(
                 value = query,
-                onValueChange = { searchViewModel.onQueryChange(it) },
+                onValueChange = {
+                    searchViewModel.onQueryChange(it)
+                    musicViewModel.updateSearchQuery(it)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
@@ -126,7 +139,10 @@ fun SearchScreen(
                 },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { searchViewModel.clearSearch() }) {
+                        IconButton(onClick = {
+                            searchViewModel.clearSearch()
+                            musicViewModel.updateSearchQuery("")
+                        }) {
                             Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFF666666))
                         }
                     }
@@ -144,119 +160,153 @@ fun SearchScreen(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = {
-                    searchViewModel.onSearchSubmit()
+                    searchViewModel.searchNow()
                     focusManager.clearFocus()
                 })
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Tab indicator: Internet / Local
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SearchChip(label = "Internet", active = true)
-                SearchChip(
-                    label = "Local (${localSongs.size})",
-                    active = false,
-                    onClick = { /* Library tab handles local */ }
-                )
+                SearchTabChip(label = "All", selected = selectedTab == SearchTab.ALL) {
+                    searchViewModel.onTabSelected(SearchTab.ALL)
+                }
+                SearchTabChip(label = "Local", selected = selectedTab == SearchTab.LOCAL) {
+                    searchViewModel.onTabSelected(SearchTab.LOCAL)
+                }
+                SearchTabChip(label = "Jamendo", selected = selectedTab == SearchTab.JAMENDO) {
+                    searchViewModel.onTabSelected(SearchTab.JAMENDO)
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Content area
+            if (query.isBlank()) {
+                if (recentSearches.isNotEmpty()) {
+                    RecentSearchesSection(
+                        recentSearches = recentSearches,
+                        onClick = {
+                            searchViewModel.onQueryChange(it)
+                            musicViewModel.updateSearchQuery(it)
+                            searchViewModel.searchNow()
+                        },
+                        onRemove = searchViewModel::removeRecentSearch,
+                        onClearAll = searchViewModel::clearRecentSearches
+                    )
+                }
+
+                if (selectedTab != SearchTab.LOCAL) {
+                    GenreSection(
+                        genres = searchViewModel.genres,
+                        onGenreClick = {
+                            searchViewModel.onTabSelected(SearchTab.JAMENDO)
+                            searchViewModel.searchGenre(it)
+                            musicViewModel.updateSearchQuery("")
+                        }
+                    )
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                when (val state = uiState) {
-                    SearchUiState.Idle -> IdleSearchHint()
-                    SearchUiState.Loading -> SearchLoadingIndicator()
-                    SearchUiState.Empty -> EmptySearchResult(query = query)
-                    is SearchUiState.Error -> SearchError(message = state.message) {
-                        searchViewModel.onSearchSubmit()
-                    }
-                    is SearchUiState.Success -> {
-                        LazyColumn(
-                            contentPadding = PaddingValues(
-                                bottom = if (playerState.currentSong != null) 90.dp else 16.dp
-                            )
-                        ) {
-                            item {
-                                Text(
-                                    text = "${state.results.size} results for \"$query\"",
-                                    color = Color(0xFF666666),
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(
-                                        horizontal = 20.dp,
-                                        vertical = 8.dp
-                                    )
-                                )
-                            }
-                            items(state.results, key = { it.id }) { result ->
-                                SearchResultRow(
-                                    result = result,
-                                    onTap = {
-                                        searchViewModel.selectResult(result)
-                                    },
-                                    onDownload = {
-                                        searchViewModel.selectResult(result)
-                                    }
-                                )
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(start = 76.dp, end = 20.dp),
-                                    thickness = 0.5.dp,
-                                    color = Color(0xFF1A1A1A)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Modal bottom sheet for search result details
-        if (selectedResult != null) {
-            ModalBottomSheet(
-                onDismissRequest = { searchViewModel.clearSelection() },
-                sheetState = sheetState,
-                containerColor = Color(0xFF181818),
-                scrimColor = Color.Black.copy(alpha = 0.6f),
-                dragHandle = {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 12.dp, bottom = 8.dp)
-                            .width(40.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Color(0xFF444444))
+                when (selectedTab) {
+                    SearchTab.LOCAL -> SongResultsList(
+                        title = "Local Library",
+                        songs = localResults,
+                        listState = listState,
+                        playerState = playerState,
+                        onSongClick = { song -> musicViewModel.playSong(song, localResults) }
                     )
-                }
-            ) {
-                SearchResultDetailSheetContent(
-                    result = selectedResult!!,
-                    downloadLinkState = downloadLinkState,
-                    onGetDownloadLink = { searchViewModel.getDownloadLink() },
-                    onNavigateToDownloader = { track ->
-                        scope.launch { sheetState.hide() }.invokeOnCompletion {
-                            val intent = Intent(context, DownloaderActivity::class.java).apply {
-                                putExtra(DownloaderActivity.EXTRA_DOWNLOADABLE_TRACK, track)
+
+                    SearchTab.JAMENDO -> {
+                        if (uiState.jamendoLoading && jamendoResults.isEmpty()) {
+                            SearchLoadingIndicator()
+                        } else if (uiState.jamendoError != null && jamendoResults.isEmpty()) {
+                            SearchError(message = uiState.jamendoError ?: "Search failed") {
+                                searchViewModel.searchNow()
                             }
-                            context.startActivity(intent)
-                            searchViewModel.clearSelection()
+                        } else if (query.isBlank() && uiState.selectedGenre == null) {
+                            EmptySearchResult(query = query)
+                        } else {
+                            SongResultsList(
+                                title = if (uiState.selectedGenre != null) {
+                                    "${uiState.selectedGenre} on Jamendo"
+                                } else {
+                                    "Jamendo Results"
+                                },
+                                songs = jamendoResults,
+                                listState = listState,
+                                playerState = playerState,
+                                onSongClick = { song -> musicViewModel.playSong(song, jamendoResults) },
+                                loading = uiState.jamendoLoading,
+                                showLoadMore = uiState.jamendoHasMore,
+                                onLoadMore = searchViewModel::loadMoreJamendo
+                            )
                         }
                     }
-                )
+
+                    SearchTab.ALL -> {
+                        if (query.isBlank()) {
+                            IdleSearchHint()
+                        } else {
+                            LazyColumn(
+                                state = listState,
+                                contentPadding = PaddingValues(
+                                    bottom = if (playerState.currentSong != null) 90.dp else 16.dp
+                                )
+                            ) {
+                                if (localResults.isNotEmpty()) {
+                                    item {
+                                        SectionHeader("Local")
+                                    }
+                                    items(localResults, key = { "local-${it.id}" }) { song ->
+                                        SongRow(song = song, isPlaying = song.id == playerState.currentSong?.id) {
+                                            musicViewModel.playSong(song, localResults)
+                                        }
+                                    }
+                                }
+
+                                if (jamendoResults.isNotEmpty()) {
+                                    item { SectionHeader("Jamendo") }
+                                    items(jamendoResults, key = { "jamendo-${it.id}" }) { song ->
+                                        SongRow(song = song, isPlaying = song.id == playerState.currentSong?.id) {
+                                            musicViewModel.playSong(song, jamendoResults)
+                                        }
+                                    }
+                                    if (uiState.jamendoHasMore) {
+                                        item {
+                                            Button(
+                                                onClick = { searchViewModel.loadMoreJamendo() },
+                                                modifier = Modifier
+                                                    .padding(20.dp)
+                                                    .fillMaxWidth()
+                                            ) {
+                                                Text("Load more Jamendo")
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (localResults.isEmpty() && jamendoResults.isEmpty()) {
+                                    item { EmptySearchResult(query = query) }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
         // Mini Player
-        if (playerState.currentSong != null && selectedResult == null) {
+        if (playerState.currentSong != null) {
             MiniPlayer(
                 playerState = playerState,
                 onPlayPause = { musicViewModel.togglePlayPause() },
@@ -267,6 +317,144 @@ fun SearchScreen(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
             )
+        }
+    }
+}
+
+@Composable
+private fun SearchTabChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Color(0xFF1DB954) else Color(0xFF1A1A1A),
+            contentColor = Color.White
+        ),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+    ) { Text(label) }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        color = Color.White,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+    )
+}
+
+@Composable
+private fun RecentSearchesSection(
+    recentSearches: List<String>,
+    onClick: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onClearAll: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Recent searches", color = Color.White, fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = onClearAll) { Text("Clear all") }
+        }
+        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(recentSearches, key = { it }) { item ->
+                Button(onClick = { onClick(item) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A))) {
+                    Text(item)
+                }
+                IconButton(onClick = { onRemove(item) }) { Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color(0xFF888888)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GenreSection(genres: List<String>, onGenreClick: (String) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Browse genres",
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(genres, key = { it }) { genre ->
+                Button(onClick = { onGenreClick(genre) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A))) {
+                    Text(genre.replaceFirstChar { it.uppercaseChar() })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SongResultsList(
+    title: String,
+    songs: List<Song>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    playerState: com.lalit.amplify.core.model.PlayerState,
+    onSongClick: (Song) -> Unit,
+    loading: Boolean = false,
+    showLoadMore: Boolean = false,
+    onLoadMore: () -> Unit = {}
+) {
+    LazyColumn(
+        state = listState,
+        contentPadding = PaddingValues(bottom = if (playerState.currentSong != null) 90.dp else 16.dp)
+    ) {
+        item { SectionHeader(title) }
+        if (songs.isEmpty()) {
+            item { EmptySearchResult(query = title) }
+        } else {
+            items(songs, key = { "${it.source}-${it.id}" }) { song ->
+                SongRow(song = song, isPlaying = song.id == playerState.currentSong?.id, onClick = { onSongClick(song) })
+            }
+            if (loading) {
+                item {
+                    Row(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.Center) {
+                        CircularProgressIndicator(color = Color(0xFF1DB954))
+                    }
+                }
+            }
+            if (showLoadMore) {
+                item {
+                    Button(
+                        onClick = onLoadMore,
+                        modifier = Modifier.padding(20.dp).fillMaxWidth()
+                    ) { Text("Load more") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SongRow(song: Song, isPlaying: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AlbumArtImage(uri = song.albumArtUri, size = 54.dp, cornerRadius = 10.dp)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(song.title, color = if (isPlaying) Color(0xFF1DB954) else Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(song.artist, color = Color(0xFF9A9A9A), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(song.source.name.lowercase().replaceFirstChar { it.uppercaseChar() }, color = Color(0xFF1DB954), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (song.duration > 0) formatDuration(song.duration) else "--:--", color = Color(0xFF666666), fontSize = 11.sp)
+            }
         }
     }
 }

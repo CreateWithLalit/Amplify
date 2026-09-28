@@ -41,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,14 +54,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.lalit.amplify.core.data.jamendo.JamendoRepository
 import com.lalit.amplify.feature.downloader.DownloadViewModel
 import com.lalit.amplify.feature.downloader.model.DownloadQuality
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
     downloadViewModel: DownloadViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val jamendoRepository = remember { JamendoRepository.getInstance(context) }
+    val jamendoQuality by jamendoRepository.getQualityPreference().collectAsState(initial = "mp32")
+    val jamendoQualityLabel = JamendoRepository.QUALITY_OPTIONS.firstOrNull { it.first == jamendoQuality }?.second ?: "MP3 VBR (Variable)"
 
     // Local toggle states
     var amoledMode by remember { mutableStateOf(false) }
@@ -146,9 +153,14 @@ fun SettingsScreen(
             SettingsDivider()
             SettingsNavRow(
                 icon = Icons.Default.MusicNote,
-                label = "Audio quality",
-                value = "High (coming soon)",
-                onClick = { }
+                label = "Jamendo quality",
+                value = jamendoQualityLabel,
+                onClick = {
+                    val options = JamendoRepository.QUALITY_OPTIONS
+                    val currentIndex = options.indexOfFirst { it.first == jamendoQuality }.coerceAtLeast(0)
+                    val next = options[(currentIndex + 1) % options.size]
+                    scope.launch { jamendoRepository.setQualityPreference(next.first) }
+                }
             )
             SettingsDivider()
             SettingsNavRow(

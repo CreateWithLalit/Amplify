@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Settings
@@ -49,11 +50,12 @@ import com.lalit.amplify.feature.player.MiniPlayer
 import com.lalit.amplify.feature.player.MusicViewModel
 import com.lalit.amplify.feature.downloader.DownloadScreen
 import com.lalit.amplify.feature.settings.SettingsScreen
+import com.lalit.amplify.feature.search.SearchScreen
 
 // ─── Route constants ───────────────────────────────────────────────────────────
 object AmplifyRoutes {
     const val HOME = "home"
-    const val DOWNLOAD = "download"
+    const val SEARCH = "search"
     const val LIBRARY = "library"
     const val SETTINGS = "settings"
     const val FULL_PLAYER = "full_player"
@@ -69,7 +71,7 @@ data class BottomNavItem(
 
 private val bottomNavItems = listOf(
     BottomNavItem(AmplifyRoutes.HOME, "Home", Icons.Filled.Home, Icons.Outlined.Home),
-    BottomNavItem(AmplifyRoutes.DOWNLOAD, "Download", Icons.Filled.Download, Icons.Filled.Download),
+    BottomNavItem(AmplifyRoutes.SEARCH, "Search", Icons.Filled.Search, Icons.Filled.Search),
     BottomNavItem(AmplifyRoutes.LIBRARY, "Library", Icons.Filled.LibraryMusic, Icons.Outlined.LibraryMusic),
     BottomNavItem(AmplifyRoutes.SETTINGS, "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
 )
@@ -86,6 +88,8 @@ fun AmplifyNavHost(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val playerState by musicViewModel.playerState.collectAsState()
+    val localFavoriteIds by musicViewModel.favoriteIds.collectAsState(initial = emptySet())
+    val jamendoFavoriteIds by musicViewModel.jamendoFavoriteIds.collectAsState(initial = emptySet())
     val isFullPlayer = currentRoute == AmplifyRoutes.FULL_PLAYER
 
     // Bottom nav hidden on full player screen
@@ -133,8 +137,11 @@ fun AmplifyNavHost(
                         }
                     )
                 }
-                composable(AmplifyRoutes.DOWNLOAD) {
-                    DownloadScreen(downloadViewModel)
+                composable(AmplifyRoutes.SEARCH) {
+                    SearchScreen(
+                        musicViewModel = musicViewModel,
+                        onOpenFullPlayer = { navController.navigate(AmplifyRoutes.FULL_PLAYER) }
+                    )
                 }
                 composable(AmplifyRoutes.LIBRARY) {
                     LibraryScreen(viewModel = musicViewModel)
@@ -153,6 +160,14 @@ fun AmplifyNavHost(
                         onSeek = { musicViewModel.seekTo(it) },
                         onShuffle = { musicViewModel.toggleShuffle() },
                         onRepeat = { musicViewModel.toggleRepeat() },
+                        isFavorite = playerState.currentSong?.let { song ->
+                            if (song.source == com.lalit.amplify.core.model.SongSource.JAMENDO) {
+                                song.id in jamendoFavoriteIds
+                            } else {
+                                song.id in localFavoriteIds
+                            }
+                        } ?: false,
+                        onToggleFavorite = { playerState.currentSong?.let(musicViewModel::toggleFavorite) },
                         onBack = { navController.popBackStack() }
                     )
                 }

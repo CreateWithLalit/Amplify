@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -19,6 +21,15 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Read Jamendo Client ID from local.properties
+        val localProperties = Properties()
+        val localPropertiesFile = rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            localProperties.load(localPropertiesFile.inputStream())
+        }
+        val jamendoClientId = localProperties.getProperty("JAMENDO_CLIENT_ID", "")
+        buildConfigField("String", "JAMENDO_CLIENT_ID", "\"$jamendoClientId\"")
     }
 
     buildTypes {
@@ -36,6 +47,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -73,28 +85,28 @@ dependencies {
     implementation(libs.datastore.preferences)
 
     // Coil for image loading
-    implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation(libs.coil.compose)
 
     // Compose ViewModel and Material Icons
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.3")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.material.icons.extended)
 
-    // Navigation Compose — NEW
-    implementation("androidx.navigation:navigation-compose:2.8.9")
+    // Navigation Compose
+    implementation(libs.navigation.compose)
 
-    // OkHttp for internet search API calls — NEW
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    // DNS-over-HTTPS for robust DNS resolution (Cloudflare) - fallback to system DNS
-    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
+    // Retrofit for API calls
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
 
-    // OkHttp logging interceptor
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    // OkHttp for HTTP client
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.logging.interceptor)
 
     // DocumentFile for SAF operations
-    implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation(libs.documentfile)
 
     // Gson for JSON parsing
-    implementation("com.google.code.gson:gson:2.11.0")
+    implementation(libs.gson)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

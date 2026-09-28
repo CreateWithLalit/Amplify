@@ -18,6 +18,8 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.lalit.amplify.core.model.PlayerState
 import com.lalit.amplify.core.model.Song
+import com.lalit.amplify.core.music.MusicSourceManager
+import com.lalit.amplify.feature.dashboard.CuratedContentProvider
 import com.lalit.amplify.feature.downloader.data.DownloadedSongRepository
 import com.lalit.amplify.service.MusicPlaybackService
 import kotlinx.coroutines.Job
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import com.lalit.amplify.core.data.AmplifyDataStore
+import com.lalit.amplify.core.data.jamendo.JamendoRepository
 import com.lalit.amplify.core.util.SortOrder
 import kotlinx.coroutines.launch
 
@@ -40,6 +43,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private val dataStore = AmplifyDataStore(context)
+    private val jamendoRepository = JamendoRepository.getInstance(context)
 
     private val downloadedSongRepo = DownloadedSongRepository.getInstance(context)
     private val _localSongs = MutableStateFlow<List<Song>>(emptyList())
@@ -66,6 +70,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     val favoriteIds = dataStore.favoriteIds
     val recentlyPlayedIds = dataStore.recentlyPlayedIds
+    val jamendoFavoriteIds = jamendoRepository.getFavoriteIds()
+    val jamendoFavoriteSongs = jamendoRepository.getFavoriteSongs()
+    val jamendoRecentlyPlayed = jamendoRepository.getRecentlyPlayedSongs()
+    private var activeQueue: List<Song> = emptyList()
 
     // Processed songs list based on search and sort
     val filteredSongs = combine(rawSongs, _searchQuery, _sortOrder) { songs, query, sort ->
@@ -98,6 +106,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val downloadedSongRepository: DownloadedSongRepository
         get() = downloadedSongRepo
 
+    // Multi-source support for streaming and recommendations
+    private val musicSourceManager = MusicSourceManager.getInstance(context)
+    private val curatedContentProvider = CuratedContentProvider.getInstance(musicSourceManager)
+
+    // Expose curated sections for Dashboard
+    val curatedSections = curatedContentProvider.curatedSections
+    val trendingSongs = curatedContentProvider.trendingSongs
+    val recommendations = curatedContentProvider.recommendations
+
     private val _playerState = MutableStateFlow(PlayerState(repeatMode = 1)) // 1 = Repeat All
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
@@ -125,7 +142,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val mediaId = mediaItem?.mediaId?.toLongOrNull()
-                val song = rawSongs.value.firstOrNull { it.id == mediaId }
+                val song = activeQueue.firstOrNull { it.id == mediaId }
+                    ?: rawSongs.value.firstOrNull { it.id == mediaId }
                 _playerState.value = _playerState.value.copy(
                     currentSong = song,
                     currentPosition = 0L,
@@ -272,8 +290,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
         ensurePlaybackService()
         
+        activeQueue = songList
         viewModelScope.launch {
-            dataStore.addRecentlyPlayed(song.id)
+            if (song.source == com.lalit.amplify.core.model.SongSource.JAMENDO) {
+                jamendoRepository.addRecentlyPlayed(song)
+            } else {
+                dataStore.addRecentlyPlayed(song.id)
+            }
         }
 
         val mediaItems = songList.map { buildMediaItem(it) }
@@ -356,8 +379,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleFavorite(song: Song) {
         viewModelScope.launch {
-            dataStore.toggleFavorite(song.id)
+            if (song.source == com.lalit.amplify.core.model.SongSource.JAMENDO) {
+                if (jamendoRepository.isFavorite(song.id)) {
+                    jamendoRepository.removeFavorite(song.id)
+                } else {
+                    jamendoRepository.addFavorite(song)
+                }
+            } else {
+                dataStore.toggleFavorite(song.id)
+            }
         }
+    }
+
+    fun clearJamendoHistory() {
+        viewModelScope.launch { jamendoRepository.clearRecentlyPlayed() }
     }
 
     fun deleteDownloadedSong(song: Song) {
@@ -389,6 +424,41 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             .setMediaMetadata(song.toMediaMetadata())
             .build()
     }
+
+    /**
+     * Load curated dashboard content from all music sources.
+     * Call this once when entering Dashboard screen.
+     */
+    fun loadCuratedContent() {
+        viewModelScope.launch {
+            curatedContentProvider.loadCuratedContent(limit = 50)
+        }
+    }
+
+    /**
+     * Search across all music sources (local and streaming).
+     * Returns a map of results grouped by source ID.
+     */
+    suspend fun searchAllSources(query: String, limit: Int = 50): Map<String, List<Song>> {
+        return curatedContentProvider.searchCurated(query, limit)
+    }
+
+    /**
+     * Get songs by genre from all sources.
+     */
+    suspend fun getByGenreAllSources(genre: String, limit: Int = 50): Map<String, List<Song>> {
+        return curatedContentProvider.getCuratedByGenre(genre, limit)
+    }
+
+    /**
+     * Get a specific music source by ID.
+     */
+    fun getSource(sourceId: String) = musicSourceManager.getSource(sourceId)
+
+    /**
+     * Get all available music sources.
+     */
+    fun getAllSources() = musicSourceManager.getAllSources()
 
     override fun onCleared() {
         super.onCleared()

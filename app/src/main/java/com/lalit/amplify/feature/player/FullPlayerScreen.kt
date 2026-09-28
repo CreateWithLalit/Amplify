@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
@@ -31,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -43,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,9 +62,12 @@ fun FullPlayerScreen(
     onSeek: (Long) -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onBack: () -> Unit
 ) {
     val song = playerState.currentSong ?: return
+    val uriHandler = LocalUriHandler.current
 
     val progress = if (playerState.duration > 0L) {
         (playerState.currentPosition.toFloat() / playerState.duration.toFloat()).coerceIn(0f, 1f)
@@ -158,13 +164,56 @@ fun FullPlayerScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                IconButton(onClick = { }) {
+                IconButton(onClick = onToggleFavorite) {
                     Icon(
-                        imageVector = Icons.Default.FavoriteBorder,
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Favorite",
                         tint = Color(0xFF999999),
                         modifier = Modifier.size(24.dp)
                     )
+                }
+            }
+
+            if (song.source == com.lalit.amplify.core.model.SongSource.JAMENDO) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0xFF1A2A1A))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "Powered by Jamendo",
+                        color = Color(0xFF1DB954),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                song.licenseInfo?.let { license ->
+                    Text(
+                        text = license,
+                        color = Color(0xFFB8B8B8),
+                        fontSize = 12.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    song.sourceUrl?.let { url ->
+                        TextButton(onClick = { uriHandler.openUri(url) }) {
+                            Text("Jamendo track")
+                        }
+                    }
+                    song.artistUrl?.let { url ->
+                        TextButton(onClick = { uriHandler.openUri(url) }) {
+                            Text("Artist page")
+                        }
+                    }
                 }
             }
 

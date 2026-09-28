@@ -30,7 +30,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -61,6 +63,9 @@ fun DashboardScreen(
     val playerState by viewModel.playerState.collectAsState()
     val favoriteIds by viewModel.favoriteIds.collectAsState(initial = emptySet())
     val recentlyPlayedIds by viewModel.recentlyPlayedIds.collectAsState(initial = emptyList())
+    val curatedSections by viewModel.curatedSections.collectAsState(initial = emptyList())
+    val jamendoFavorites by viewModel.jamendoFavoriteSongs.collectAsState(initial = emptyList())
+    val jamendoRecentlyPlayed by viewModel.jamendoRecentlyPlayed.collectAsState(initial = emptyList())
 
     val recentSongs = run {
         val songMap = songs.associateBy { it.id }
@@ -75,6 +80,11 @@ fun DashboardScreen(
         .filter { it.key != "Unknown Artist" }
         .sortedByDescending { it.value.size }
         .take(12)
+
+    // Load curated content on first composition
+    LaunchedEffect(Unit) {
+        viewModel.loadCuratedContent()
+    }
 
     Box(
         modifier = Modifier
@@ -121,6 +131,62 @@ fun DashboardScreen(
                         onPlay = { song -> viewModel.playSong(song, songs) }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            // Curated Streaming Content (NEW - Multiple Sources)
+            items(curatedSections, key = { it.sourceId }) { section ->
+                SectionTitle(section.title)
+                when {
+                    section.isLoading -> Text(
+                        text = "Loading…",
+                        color = Color(0xFF888888),
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    section.errorMessage != null -> Text(
+                        text = section.errorMessage,
+                        color = Color(0xFFB8B8B8),
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    section.songs.isNotEmpty() -> {
+                    HorizontalSongRow(
+                        songs = section.songs,
+                        playingSongId = playerState.currentSong?.id,
+                        onSongClick = { song -> viewModel.playSong(song, section.songs) }
+                    )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (jamendoFavorites.isNotEmpty()) {
+                item {
+                    SectionTitle("Jamendo Favorites")
+                    HorizontalSongRow(
+                        songs = jamendoFavorites,
+                        playingSongId = playerState.currentSong?.id,
+                        onSongClick = { song -> viewModel.playSong(song, jamendoFavorites) }
+                    )
+                }
+            }
+
+            if (jamendoRecentlyPlayed.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SectionTitle("Jamendo Recently Played")
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = viewModel::clearJamendoHistory) {
+                            Text("Clear")
+                        }
+                    }
+                    HorizontalSongRow(
+                        songs = jamendoRecentlyPlayed,
+                        playingSongId = playerState.currentSong?.id,
+                        onSongClick = { song -> viewModel.playSong(song, jamendoRecentlyPlayed) }
+                    )
                 }
             }
 
